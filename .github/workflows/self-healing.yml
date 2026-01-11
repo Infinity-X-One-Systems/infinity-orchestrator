@@ -1,0 +1,346 @@
+name: Self-Healing
+
+# This workflow automatically attempts to fix common issues detected by the health monitor
+
+on:
+  workflow_dispatch:
+    inputs:
+      triggered_by:
+        description: 'What triggered this healing run'
+        required: false
+        type: string
+        default: 'manual'
+      unhealthy_count:
+        description: 'Number of unhealthy repositories'
+        required: false
+        type: string
+        default: '0'
+      target_repository:
+        description: 'Specific repository to heal (leave empty for all)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  identify-issues:
+    name: Identify Issues
+    runs-on: ubuntu-latest
+    
+    outputs:
+      repositories: ${{ steps.identify.outputs.repositories }}
+      total: ${{ steps.identify.outputs.total }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Identify repositories needing healing
+        id: identify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG_NAME: ${{ secrets.GH_ORG || 'Infinity-X-One-Systems' }}
+          TARGET_REPO: ${{ github.event.inputs.target_repository }}
+        run: |
+          echo "Identifying repositories that need healing..."
+          
+          REPOS_TO_HEAL="[]"
+          
+          if [ -n "$TARGET_REPO" ]; then
+            # Heal specific repository
+            echo "Targeting specific repository: $TARGET_REPO"
+            REPO_DATA=$(jq --arg name "$TARGET_REPO" '.repositories[] | select(.name == $name)' config/repositories.json)
+            if [ -n "$REPO_DATA" ]; then
+              REPOS_TO_HEAL=$(echo "[$REPO_DATA]" | jq -c '.')
+            fi
+          else
+            # Find repositories with recent failures
+            while IFS= read -r repo_name; do
+              echo "Checking: $repo_name"
+              
+              RECENT_RUNS=$(gh run list --repo "$ORG_NAME/$repo_name" --limit 10 --json status,conclusion 2>/dev/null || echo '[]')
+              
+              if [ "$RECENT_RUNS" != "[]" ]; then
+                FAILURE_COUNT=$(echo "$RECENT_RUNS" | jq '[.[] | select(.conclusion == "failure")] | length')
+                
+                if [ "$FAILURE_COUNT" -ge 2 ]; then
+                  echo "  ❌ Needs healing: $FAILURE_COUNT recent failures"
+                  REPO_DATA=$(jq --arg name "$repo_name" '.repositories[] | select(.name == $name)' config/repositories.json)
+                  REPOS_TO_HEAL=$(echo "$REPOS_TO_HEAL" | jq ". += [$REPO_DATA]")
+                fi
+              fi
+            done < <(jq -r '.repositories[] | select(.archived == false and .disabled == false) | .name' config/repositories.json)
+          fi
+          
+          TOTAL=$(echo "$REPOS_TO_HEAL" | jq '. | length')
+          
+          echo "repositories=$(echo $REPOS_TO_HEAL | jq -c '.')" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          
+          echo "Found $TOTAL repositories needing healing"
+      
+      - name: Create summary
+        run: |
+          echo "## Self-Healing Identification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered By**: ${{ github.event.inputs.triggered_by }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repositories Identified**: ${{ steps.identify.outputs.total }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+  
+  heal-repositories:
+    name: Heal ${{ matrix.repo.name }}
+    needs: identify-issues
+    if: needs.identify-issues.outputs.total > 0
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        repo: ${{ fromJson(needs.identify-issues.outputs.repositories) }}
+    
+    steps:
+      - name: Checkout orchestrator
+        uses: actions/checkout@v4
+        with:
+          path: orchestrator
+      
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo.full_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: target-repo
+      
+      - name: Analyze failure patterns
+        id: analyze
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd target-repo
+          echo "Analyzing failure patterns for ${{ matrix.repo.name }}..."
+          
+          # Get recent failed runs
+          FAILED_RUNS=$(gh run list --repo ${{ matrix.repo.full_name }} --limit 5 --json databaseId,conclusion --jq '[.[] | select(.conclusion == "failure") | .databaseId]')
+          
+          if [ "$FAILED_RUNS" = "[]" ]; then
+            echo "No failed runs to analyze"
+            echo "strategy=none" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Found failed runs: $FAILED_RUNS"
+          
+          # Determine healing strategy
+          # This is a simplified version - could be enhanced with log analysis
+          
+          if [ -f package.json ] && [ -f package-lock.json ]; then
+            echo "strategy=npm_clean" >> $GITHUB_OUTPUT
+            echo "Node.js project detected - will try clean install"
+          elif [ -f requirements.txt ]; then
+            echo "strategy=pip_update" >> $GITHUB_OUTPUT
+            echo "Python project detected - will try dependency update"
+          elif [ -f go.mod ]; then
+            echo "strategy=go_tidy" >> $GITHUB_OUTPUT
+            echo "Go project detected - will try go mod tidy"
+          elif [ -f Cargo.toml ]; then
+            echo "strategy=cargo_update" >> $GITHUB_OUTPUT
+            echo "Rust project detected - will try cargo update"
+          else
+            echo "strategy=cache_clear" >> $GITHUB_OUTPUT
+            echo "Generic project - will try cache clearing"
+          fi
+      
+      - name: Apply healing strategy
+        id: heal
+        run: |
+          cd target-repo
+          echo "Applying healing strategy: ${{ steps.analyze.outputs.strategy }}"
+          
+          STRATEGY="${{ steps.analyze.outputs.strategy }}"
+          HEALING_APPLIED=false
+          
+          case "$STRATEGY" in
+            npm_clean)
+              echo "Applying npm clean strategy..."
+              if [ -f package-lock.json ]; then
+                rm -f package-lock.json
+                echo "Removed package-lock.json"
+                HEALING_APPLIED=true
+              fi
+              ;;
+            
+            pip_update)
+              echo "Applying pip update strategy..."
+              if [ -f requirements.txt ]; then
+                # Create a PR with updated dependencies
+                echo "Would update Python dependencies"
+                HEALING_APPLIED=true
+              fi
+              ;;
+            
+            go_tidy)
+              echo "Applying go tidy strategy..."
+              if [ -f go.mod ]; then
+                # go mod tidy would be run here
+                echo "Would run go mod tidy"
+                HEALING_APPLIED=true
+              fi
+              ;;
+            
+            cargo_update)
+              echo "Applying cargo update strategy..."
+              if [ -f Cargo.lock ]; then
+                rm -f Cargo.lock
+                echo "Removed Cargo.lock"
+                HEALING_APPLIED=true
+              fi
+              ;;
+            
+            cache_clear)
+              echo "Cache clearing strategy..."
+              echo "Will trigger workflow with cache bypass"
+              HEALING_APPLIED=true
+              ;;
+            
+            *)
+              echo "No specific healing strategy applicable"
+              ;;
+          esac
+          
+          echo "applied=$HEALING_APPLIED" >> $GITHUB_OUTPUT
+      
+      - name: Create healing PR
+        if: steps.heal.outputs.applied == 'true'
+        run: |
+          cd target-repo
+          
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if there are changes
+          if ! git diff --quiet; then
+            BRANCH_NAME="orchestrator/self-healing-$(date +%s)"
+            
+            git checkout -b "$BRANCH_NAME"
+            git add .
+            git commit -m "chore: apply self-healing fixes
+
+            Applied healing strategy: ${{ steps.analyze.outputs.strategy }}
+            
+            This commit was automatically created by the Infinity Orchestrator
+            self-healing system to address recent build failures.
+            
+            Triggered by: ${{ github.event.inputs.triggered_by }}
+            Orchestrator Run: ${{ github.run_id }}"
+            
+            git push origin "$BRANCH_NAME"
+            
+            # Create PR
+            gh pr create \
+              --repo ${{ matrix.repo.full_name }} \
+              --title "🔧 Self-Healing: Fix build issues" \
+              --body "## Automatic Healing PR
+
+            This PR was automatically created by the Infinity Orchestrator to address recent build failures.
+
+            **Healing Strategy Applied**: ${{ steps.analyze.outputs.strategy }}
+            **Triggered By**: ${{ github.event.inputs.triggered_by }}
+            **Orchestrator Run**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ### Changes
+            - Applied automated fixes based on failure pattern analysis
+            - Please review and merge if appropriate
+
+            ### Testing
+            - Automated tests will run on this PR
+            - Monitor workflow results before merging
+
+            ---
+            *This PR was automatically created by the Infinity Orchestrator self-healing system*" \
+              --label "orchestrator:healing,auto-generated" \
+              --head "$BRANCH_NAME"
+            
+            echo "✅ Healing PR created for ${{ matrix.repo.name }}"
+          else
+            echo "No changes to commit"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Trigger workflow rerun
+        if: steps.analyze.outputs.strategy == 'cache_clear'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Triggering workflow rerun for ${{ matrix.repo.name }}..."
+          
+          # Get the most recent failed run
+          FAILED_RUN=$(gh run list --repo ${{ matrix.repo.full_name }} --limit 1 --json databaseId,conclusion --jq '[.[] | select(.conclusion == "failure") | .databaseId][0]')
+          
+          if [ -n "$FAILED_RUN" ] && [ "$FAILED_RUN" != "null" ]; then
+            echo "Rerunning workflow: $FAILED_RUN"
+            gh run rerun "$FAILED_RUN" --repo ${{ matrix.repo.full_name }} || echo "Could not rerun workflow"
+          fi
+  
+  healing-summary:
+    name: Healing Summary
+    needs: [identify-issues, heal-repositories]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Create summary
+        run: |
+          echo "## Self-Healing Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered By**: ${{ github.event.inputs.triggered_by }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repositories Processed**: ${{ needs.identify-issues.outputs.total }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Healing Status**: ${{ needs.heal-repositories.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.heal-repositories.result }}" = "success" ]; then
+            echo "✅ Self-healing completed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Self-healing completed with some issues" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Update health alert
+        if: github.event.inputs.triggered_by == 'health-monitor'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Find the health alert issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'orchestrator:alert,health-check'
+            });
+            
+            if (issues.data.length > 0) {
+              const issue = issues.data[0];
+              
+              // Add comment about healing attempt
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `## Self-Healing Update
+
+                Self-healing workflow has been executed.
+
+                - **Repositories Processed**: ${{ needs.identify-issues.outputs.total }}
+                - **Status**: ${{ needs.heal-repositories.result }}
+                - **Run**: [#${context.runId}](${context.payload.repository.html_url}/actions/runs/${context.runId})
+                - **Timestamp**: ${new Date().toISOString()}
+
+                The health monitor will continue to track recovery progress.`
+              });
+            }

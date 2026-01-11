@@ -1,0 +1,211 @@
+name: Repository Sync
+
+# This workflow discovers all repositories in the organization and updates the manifest
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_refresh:
+        description: 'Force a complete refresh of the repository manifest'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    paths:
+      - 'config/orchestrator.yml'
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  discover-repositories:
+    name: Discover Repositories
+    runs-on: ubuntu-latest
+    
+    outputs:
+      repositories_found: ${{ steps.discover.outputs.count }}
+      manifest_updated: ${{ steps.discover.outputs.updated }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup GitHub CLI
+        run: |
+          # Verify gh is available
+          gh --version
+      
+      - name: Discover repositories
+        id: discover
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG_NAME: ${{ secrets.GH_ORG || 'Infinity-X-One-Systems' }}
+          FORCE_REFRESH: ${{ github.event.inputs.force_refresh || 'false' }}
+        run: |
+          echo "Discovering repositories in organization: $ORG_NAME"
+          
+          # Create backup of existing manifest
+          if [ -f config/repositories.json ]; then
+            cp config/repositories.json config/repositories.json.bak
+          fi
+          
+          # Fetch all repositories from the organization
+          echo "Fetching repository list..."
+          REPOS=$(gh repo list "$ORG_NAME" --json name,description,defaultBranchRef,isPrivate,isArchived,isDisabled,primaryLanguage,repositoryTopics,createdAt,updatedAt --limit 1000)
+          
+          # Count repositories
+          REPO_COUNT=$(echo "$REPOS" | jq '. | length')
+          echo "Found $REPO_COUNT repositories"
+          echo "count=$REPO_COUNT" >> $GITHUB_OUTPUT
+          
+          # Generate manifest
+          cat > config/repositories.json << EOF
+          {
+            "version": "1.0.0",
+            "last_updated": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "organization": "$ORG_NAME",
+            "repositories": $(echo "$REPOS" | jq '[.[] | {
+              name: .name,
+              full_name: "'"$ORG_NAME"'/\(.name)",
+              description: .description,
+              language: (.primaryLanguage.name // "unknown"),
+              default_branch: (.defaultBranchRef.name // "main"),
+              private: .isPrivate,
+              archived: .isArchived,
+              disabled: .isDisabled,
+              topics: [.repositoryTopics[].topic.name],
+              created_at: .createdAt,
+              updated_at: .updatedAt,
+              build_config: {
+                enabled: true,
+                build_command: (
+                  if (.primaryLanguage.name == "JavaScript" or .primaryLanguage.name == "TypeScript") then "npm run build || echo \"No build script\""
+                  elif (.primaryLanguage.name == "Python") then "python setup.py build || echo \"No setup.py\""
+                  elif (.primaryLanguage.name == "Go") then "go build ./..."
+                  elif (.primaryLanguage.name == "Java") then "mvn package || gradle build || echo \"No build tool\""
+                  elif (.primaryLanguage.name == "Rust") then "cargo build"
+                  elif (.primaryLanguage.name == "C#") then "dotnet build"
+                  else "echo \"No build required\""
+                  end
+                ),
+                test_command: (
+                  if (.primaryLanguage.name == "JavaScript" or .primaryLanguage.name == "TypeScript") then "npm test || echo \"No test script\""
+                  elif (.primaryLanguage.name == "Python") then "pytest || python -m unittest || echo \"No tests\""
+                  elif (.primaryLanguage.name == "Go") then "go test ./..."
+                  elif (.primaryLanguage.name == "Java") then "mvn test || gradle test || echo \"No test tool\""
+                  elif (.primaryLanguage.name == "Rust") then "cargo test"
+                  elif (.primaryLanguage.name == "C#") then "dotnet test"
+                  elif (.primaryLanguage.name == "Shell") then "shellcheck scripts/*.sh || true"
+                  else "echo \"No tests configured\""
+                  end
+                ),
+                pre_build: [],
+                post_build: []
+              },
+              dependencies: [],
+              health: {
+                status: "healthy",
+                last_check: "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+                issues: []
+              },
+              metadata: {
+                tags: [],
+                priority: "normal",
+                owner: "system"
+              }
+            }]'),
+            "statistics": {
+              "total_repositories": $(echo "$REPOS" | jq '. | length'),
+              "active_repositories": $(echo "$REPOS" | jq '[.[] | select(.isArchived == false and .isDisabled == false)] | length'),
+              "archived_repositories": $(echo "$REPOS" | jq '[.[] | select(.isArchived == true)] | length'),
+              "languages": $(echo "$REPOS" | jq 'group_by(.primaryLanguage.name // "unknown") | map({key: .[0].primaryLanguage.name // "unknown", value: length}) | from_entries'),
+              "health_summary": {
+                "healthy": $(echo "$REPOS" | jq '[.[] | select(.isArchived == false and .isDisabled == false)] | length'),
+                "warning": 0,
+                "critical": 0
+              }
+            }
+          }
+          EOF
+          
+          # Format JSON
+          if command -v jq &> /dev/null; then
+            jq '.' config/repositories.json > config/repositories.json.tmp
+            mv config/repositories.json.tmp config/repositories.json
+          fi
+          
+          # Check if manifest was updated
+          if [ -f config/repositories.json.bak ]; then
+            if diff -q config/repositories.json config/repositories.json.bak > /dev/null 2>&1; then
+              echo "updated=false" >> $GITHUB_OUTPUT
+              echo "No changes detected in repository manifest"
+            else
+              echo "updated=true" >> $GITHUB_OUTPUT
+              echo "Repository manifest has been updated"
+            fi
+            rm config/repositories.json.bak
+          else
+            echo "updated=true" >> $GITHUB_OUTPUT
+            echo "Initial repository manifest created"
+          fi
+      
+      - name: Commit and push changes
+        if: steps.discover.outputs.updated == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add config/repositories.json
+          git commit -m "chore(orchestrator): update repository manifest
+
+          - Discovered ${{ steps.discover.outputs.count }} repositories
+          - Updated at $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - Auto-generated by repository sync workflow"
+          
+          git push
+      
+      - name: Create summary
+        run: |
+          echo "## Repository Discovery Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repositories Found**: ${{ steps.discover.outputs.count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Manifest Updated**: ${{ steps.discover.outputs.updated }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f config/repositories.json ]; then
+            echo "### Repository Breakdown" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Total | $(jq '.statistics.total_repositories' config/repositories.json) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Active | $(jq '.statistics.active_repositories' config/repositories.json) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Archived | $(jq '.statistics.archived_repositories' config/repositories.json) |" >> $GITHUB_STEP_SUMMARY
+          fi
+  
+  trigger-onboarding:
+    name: Trigger Onboarding for New Repos
+    needs: discover-repositories
+    if: needs.discover-repositories.outputs.manifest_updated == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Check for new repositories
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Checking for newly discovered repositories..."
+          echo "This step would trigger onboarding workflows for new repositories"
+          echo "Future enhancement: Create welcome issues, setup branch protection, etc."

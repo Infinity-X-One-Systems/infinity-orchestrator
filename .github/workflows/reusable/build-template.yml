@@ -1,0 +1,29 @@
+name: Build Template
+on:
+  workflow_call:
+    inputs:
+      repository:
+        required: true
+        type: string
+      language:
+        required: true
+        type: string
+      build_command:
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+      
+      - name: Setup environment
+        run: |
+          echo "Setting up for ${{ inputs.language }}"
+      
+      - name: Build
+        run: ${{ inputs.build_command }}

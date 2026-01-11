@@ -1,0 +1,220 @@
+name: Health Monitor
+
+# This workflow continuously monitors the health of all repositories and triggers self-healing when needed
+
+on:
+  schedule:
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Multi-Repository Build"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+jobs:
+  health-check:
+    name: Repository Health Check
+    runs-on: ubuntu-latest
+    
+    outputs:
+      unhealthy_count: ${{ steps.check.outputs.unhealthy }}
+      needs_healing: ${{ steps.check.outputs.needs_healing }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Load repository manifest
+        id: load
+        run: |
+          if [ ! -f config/repositories.json ]; then
+            echo "Error: Repository manifest not found"
+            exit 1
+          fi
+          
+          TOTAL=$(jq '.statistics.total_repositories' config/repositories.json)
+          ACTIVE=$(jq '.statistics.active_repositories' config/repositories.json)
+          
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "active=$ACTIVE" >> $GITHUB_OUTPUT
+      
+      - name: Check repository health
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG_NAME: ${{ secrets.GH_ORG || 'Infinity-X-One-Systems' }}
+        run: |
+          echo "Checking health of repositories..."
+          
+          UNHEALTHY=0
+          HEALTH_REPORT="[]"
+          
+          # Iterate through repositories
+          while IFS= read -r repo_name; do
+            echo "Checking: $repo_name"
+            
+            # Check workflow runs for this repository
+            RECENT_RUNS=$(gh run list --repo "$ORG_NAME/$repo_name" --limit 5 --json status,conclusion,createdAt 2>/dev/null || echo '[]')
+            
+            if [ "$RECENT_RUNS" = "[]" ]; then
+              echo "  ℹ️  No workflow runs found"
+              STATUS="unknown"
+            else
+              # Count failures in recent runs
+              FAILURE_COUNT=$(echo "$RECENT_RUNS" | jq '[.[] | select(.conclusion == "failure")] | length')
+              TOTAL_RUNS=$(echo "$RECENT_RUNS" | jq '. | length')
+              
+              if [ "$FAILURE_COUNT" -ge 3 ]; then
+                echo "  ❌ Unhealthy: $FAILURE_COUNT/$TOTAL_RUNS recent runs failed"
+                STATUS="unhealthy"
+                UNHEALTHY=$((UNHEALTHY + 1))
+              elif [ "$FAILURE_COUNT" -gt 0 ]; then
+                echo "  ⚠️  Warning: $FAILURE_COUNT/$TOTAL_RUNS recent runs failed"
+                STATUS="warning"
+              else
+                echo "  ✅ Healthy: All recent runs passed"
+                STATUS="healthy"
+              fi
+            fi
+            
+            # Add to health report
+            HEALTH_REPORT=$(echo "$HEALTH_REPORT" | jq ". += [{
+              \"name\": \"$repo_name\",
+              \"status\": \"$STATUS\",
+              \"checked_at\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"
+            }]")
+            
+          done < <(jq -r '.repositories[] | select(.archived == false and .disabled == false) | .name' config/repositories.json)
+          
+          # Save health report
+          echo "$HEALTH_REPORT" > /tmp/health-report.json
+          
+          echo "unhealthy=$UNHEALTHY" >> $GITHUB_OUTPUT
+          
+          # Determine if healing is needed
+          if [ "$UNHEALTHY" -ge 1 ]; then
+            echo "needs_healing=true" >> $GITHUB_OUTPUT
+          else
+            echo "needs_healing=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "Health check complete: $UNHEALTHY unhealthy repositories found"
+      
+      - name: Update health metrics
+        run: |
+          echo "## Health Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Active Repositories**: ${{ steps.load.outputs.active }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Unhealthy Repositories**: ${{ steps.check.outputs.unhealthy }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Healing Required**: ${{ steps.check.outputs.needs_healing }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f /tmp/health-report.json ]; then
+            echo "### Repository Status" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Repository | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
+            jq -r '.[] | "| \(.name) | \(.status) |"' /tmp/health-report.json >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Upload health report
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-report-${{ github.run_id }}
+          path: /tmp/health-report.json
+          retention-days: 30
+      
+      - name: Create alert issue
+        if: steps.check.outputs.unhealthy > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const unhealthyCount = ${{ steps.check.outputs.unhealthy }};
+            
+            // Check if there's already an open alert issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'orchestrator:alert,health-check'
+            });
+            
+            if (issues.data.length === 0) {
+              // Create new alert issue
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `⚠️ Health Alert: ${unhealthyCount} Unhealthy Repositories`,
+                body: `## Repository Health Alert
+                
+                The health monitor has detected issues with ${unhealthyCount} repositories.
+                
+                **Alert Details**:
+                - Unhealthy Repositories: ${unhealthyCount}
+                - Health Check Run: [#${context.runId}](${context.payload.repository.html_url}/actions/runs/${context.runId})
+                - Timestamp: ${new Date().toISOString()}
+                
+                **Action**: Self-healing workflow will be triggered automatically.
+                
+                Review the health check logs for more details.
+                
+                ---
+                *This alert was automatically created by the Health Monitor*`,
+                labels: ['orchestrator:alert', 'health-check', 'priority:high']
+              });
+            }
+  
+  trigger-self-healing:
+    name: Trigger Self-Healing
+    needs: health-check
+    if: needs.health-check.outputs.needs_healing == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Trigger self-healing workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Triggering self-healing workflow..."
+          gh workflow run self-healing.yml \
+            --field triggered_by="health-monitor" \
+            --field unhealthy_count="${{ needs.health-check.outputs.unhealthy_count }}"
+          
+          echo "Self-healing workflow triggered successfully"
+  
+  check-build-status:
+    name: Check Recent Build Status
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check build workflow result
+        env:
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          echo "Previous workflow conclusion: $CONCLUSION"
+          
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "⚠️ Previous build workflow did not succeed"
+            echo "Status will be tracked in health metrics"
+          else
+            echo "✅ Previous build workflow succeeded"
+          fi
+      
+      - name: Create summary
+        run: |
+          echo "## Build Workflow Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Workflow**: ${{ github.event.workflow_run.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Conclusion**: ${{ github.event.workflow_run.conclusion }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run ID**: ${{ github.event.workflow_run.id }}" >> $GITHUB_STEP_SUMMARY

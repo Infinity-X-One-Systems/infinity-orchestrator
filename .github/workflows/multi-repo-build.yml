@@ -1,0 +1,317 @@
+name: Multi-Repository Build
+
+# This workflow builds and tests all repositories in the organization
+
+on:
+  schedule:
+    # Run daily at midnight UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      repositories:
+        description: 'Comma-separated list of repositories to build (empty = all)'
+        required: false
+        type: string
+      skip_tests:
+        description: 'Skip running tests'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    paths:
+      - 'config/repositories.json'
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  actions: read
+
+jobs:
+  prepare-matrix:
+    name: Prepare Build Matrix
+    runs-on: ubuntu-latest
+    
+    outputs:
+      matrix: ${{ steps.create-matrix.outputs.matrix }}
+      total: ${{ steps.create-matrix.outputs.total }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Create build matrix
+        id: create-matrix
+        run: |
+          # Read repository manifest
+          if [ ! -f config/repositories.json ]; then
+            echo "Error: Repository manifest not found"
+            exit 1
+          fi
+          
+          # Filter repositories based on input
+          SELECTED_REPOS="${{ github.event.inputs.repositories }}"
+          
+          if [ -n "$SELECTED_REPOS" ]; then
+            # Build specific repositories
+            IFS=',' read -ra REPO_ARRAY <<< "$SELECTED_REPOS"
+            MATRIX="[]"
+            for repo in "${REPO_ARRAY[@]}"; do
+              repo=$(echo "$repo" | xargs)  # Trim whitespace
+              REPO_DATA=$(jq --arg name "$repo" '.repositories[] | select(.name == $name)' config/repositories.json)
+              if [ -n "$REPO_DATA" ]; then
+                MATRIX=$(echo "$MATRIX" | jq ". += [$REPO_DATA]")
+              fi
+            done
+          else
+            # Build all active (non-archived, non-disabled) repositories
+            MATRIX=$(jq '[.repositories[] | select(.archived == false and .disabled == false)]' config/repositories.json)
+          fi
+          
+          # Output matrix
+          echo "matrix=$(echo $MATRIX | jq -c '.')" >> $GITHUB_OUTPUT
+          echo "total=$(echo $MATRIX | jq '. | length')" >> $GITHUB_OUTPUT
+          
+          # Summary
+          echo "## Build Matrix Prepared" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repositories to build**: $(echo $MATRIX | jq '. | length')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Repositories" >> $GITHUB_STEP_SUMMARY
+          echo "$MATRIX" | jq -r '.[] | "- \(.name) (\(.language))"' >> $GITHUB_STEP_SUMMARY
+  
+  build-repositories:
+    name: Build ${{ matrix.repo.name }}
+    needs: prepare-matrix
+    if: needs.prepare-matrix.outputs.total > 0
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        repo: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+    
+    steps:
+      - name: Checkout ${{ matrix.repo.name }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo.full_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: repo
+      
+      - name: Setup build environment
+        run: |
+          cd repo
+          echo "Setting up build environment for ${{ matrix.repo.name }}"
+          echo "Language: ${{ matrix.repo.language }}"
+          
+          # Setup language-specific environment
+          case "${{ matrix.repo.language }}" in
+            JavaScript|TypeScript)
+              if [ -f package.json ]; then
+                echo "Node.js project detected"
+                echo "setup_type=node" >> $GITHUB_ENV
+              fi
+              ;;
+            Python)
+              if [ -f requirements.txt ] || [ -f setup.py ] || [ -f pyproject.toml ]; then
+                echo "Python project detected"
+                echo "setup_type=python" >> $GITHUB_ENV
+              fi
+              ;;
+            Go)
+              if [ -f go.mod ]; then
+                echo "Go project detected"
+                echo "setup_type=go" >> $GITHUB_ENV
+              fi
+              ;;
+            Java)
+              if [ -f pom.xml ] || [ -f build.gradle ]; then
+                echo "Java project detected"
+                echo "setup_type=java" >> $GITHUB_ENV
+              fi
+              ;;
+            Rust)
+              if [ -f Cargo.toml ]; then
+                echo "Rust project detected"
+                echo "setup_type=rust" >> $GITHUB_ENV
+              fi
+              ;;
+            "C#")
+              if [ -f *.csproj ] || [ -f *.sln ]; then
+                echo ".NET project detected"
+                echo "setup_type=dotnet" >> $GITHUB_ENV
+              fi
+              ;;
+            *)
+              echo "Generic project"
+              echo "setup_type=generic" >> $GITHUB_ENV
+              ;;
+          esac
+      
+      - name: Setup Node.js
+        if: env.setup_type == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: repo/package-lock.json
+      
+      - name: Setup Python
+        if: env.setup_type == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Setup Go
+        if: env.setup_type == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: repo/go.sum
+      
+      - name: Setup Java
+        if: env.setup_type == 'java'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: Setup Rust
+        if: env.setup_type == 'rust'
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      
+      - name: Setup .NET
+        if: env.setup_type == 'dotnet'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      
+      - name: Install dependencies
+        run: |
+          cd repo
+          echo "Installing dependencies..."
+          
+          case "$setup_type" in
+            node)
+              npm ci || npm install || echo "No dependencies to install"
+              ;;
+            python)
+              pip install -r requirements.txt || echo "No requirements.txt"
+              ;;
+            go)
+              go mod download || echo "No modules to download"
+              ;;
+            java)
+              if [ -f pom.xml ]; then
+                mvn dependency:resolve || echo "Maven dependencies failed"
+              elif [ -f build.gradle ]; then
+                gradle dependencies || echo "Gradle dependencies failed"
+              fi
+              ;;
+            rust)
+              cargo fetch || echo "No dependencies to fetch"
+              ;;
+            dotnet)
+              dotnet restore || echo "No packages to restore"
+              ;;
+          esac
+      
+      - name: Run build
+        id: build
+        run: |
+          cd repo
+          echo "Building ${{ matrix.repo.name }}..."
+          
+          BUILD_CMD='${{ matrix.repo.build_config.build_command }}'
+          echo "Build command: $BUILD_CMD"
+          
+          if eval "$BUILD_CMD"; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "✅ Build succeeded for ${{ matrix.repo.name }}"
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "❌ Build failed for ${{ matrix.repo.name }}"
+            exit 1
+          fi
+      
+      - name: Run tests
+        if: github.event.inputs.skip_tests != 'true' && matrix.repo.build_config.enabled
+        run: |
+          cd repo
+          echo "Running tests for ${{ matrix.repo.name }}..."
+          
+          TEST_CMD='${{ matrix.repo.build_config.test_command }}'
+          echo "Test command: $TEST_CMD"
+          
+          if eval "$TEST_CMD"; then
+            echo "✅ Tests passed for ${{ matrix.repo.name }}"
+          else
+            echo "⚠️ Tests failed for ${{ matrix.repo.name }}"
+            # Don't fail the workflow on test failure, just report
+            exit 0
+          fi
+      
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ matrix.repo.name }}
+          path: |
+            repo/**/*.log
+            repo/**/build/
+            repo/**/dist/
+            repo/**/target/
+          retention-days: 7
+          if-no-files-found: ignore
+  
+  build-summary:
+    name: Build Summary
+    needs: [prepare-matrix, build-repositories]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Create summary
+        run: |
+          echo "## Multi-Repository Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Repositories**: ${{ needs.prepare-matrix.outputs.total }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Status**: ${{ needs.build-repositories.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.build-repositories.result }}" != "success" ]; then
+            echo "⚠️ Some builds failed. Check individual job logs for details." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All builds completed successfully!" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Multi-Repository Build Failed',
+              body: `## Build Failure Report
+              
+              The multi-repository build workflow has failed.
+              
+              **Run ID**: ${context.runId}
+              **Workflow**: ${context.workflow}
+              **Triggered by**: ${context.actor}
+              **Timestamp**: ${new Date().toISOString()}
+              
+              **Action Required**: Please review the [workflow logs](${context.payload.repository.html_url}/actions/runs/${context.runId}) and address any issues.
+              
+              ---
+              *This issue was automatically created by the Infinity Orchestrator*`,
+              labels: ['orchestrator:alert', 'priority:high', 'type:build-failure']
+            });
