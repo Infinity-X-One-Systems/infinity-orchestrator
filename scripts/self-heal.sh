@@ -91,21 +91,30 @@ apply_healing() {
     
     log_heal "Applying healing strategy '$strategy' to $repo_name"
     
+    # Note: This script identifies strategies but delegates actual implementation
+    # to the GitHub Actions self-healing workflow which has the necessary
+    # permissions and context to make repository changes.
+    
     case "$strategy" in
         npm_clean)
-            log_heal "Would remove package-lock.json and node_modules"
+            log_heal "Strategy identified: Remove package-lock.json and node_modules"
+            log_info "This will be executed by the self-healing workflow"
             ;;
         pip_update)
-            log_heal "Would update Python dependencies"
+            log_heal "Strategy identified: Update Python dependencies"
+            log_info "This will be executed by the self-healing workflow"
             ;;
         go_tidy)
-            log_heal "Would run go mod tidy"
+            log_heal "Strategy identified: Run go mod tidy"
+            log_info "This will be executed by the self-healing workflow"
             ;;
         cargo_update)
-            log_heal "Would remove Cargo.lock"
+            log_heal "Strategy identified: Remove Cargo.lock"
+            log_info "This will be executed by the self-healing workflow"
             ;;
         cache_clear)
-            log_heal "Would clear workflow cache"
+            log_heal "Strategy identified: Clear workflow cache"
+            log_info "This will be executed by the self-healing workflow"
             ;;
         *)
             log_error "Unknown strategy: $strategy"
@@ -113,7 +122,7 @@ apply_healing() {
             ;;
     esac
     
-    log_info "Healing strategy applied successfully"
+    log_info "Healing strategy identified successfully"
     return 0
 }
 

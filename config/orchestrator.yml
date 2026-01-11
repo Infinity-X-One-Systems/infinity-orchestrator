@@ -7,7 +7,8 @@ discovery:
   scan_interval: "0 */6 * * *"  # Every 6 hours
   
   # Organization to scan
-  organization: "Infinity-X-One-Systems"
+  # This can be overridden by the GH_ORG environment variable or secret
+  organization: "${GH_ORG:-Infinity-X-One-Systems}"
   
   # Repository filters
   filters:

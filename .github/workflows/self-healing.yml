@@ -229,15 +229,7 @@ jobs:
             
             git checkout -b "$BRANCH_NAME"
             git add .
-            git commit -m "chore: apply self-healing fixes
-
-            Applied healing strategy: ${{ steps.analyze.outputs.strategy }}
-            
-            This commit was automatically created by the Infinity Orchestrator
-            self-healing system to address recent build failures.
-            
-            Triggered by: ${{ github.event.inputs.triggered_by }}
-            Orchestrator Run: ${{ github.run_id }}"
+            git commit -m "chore: apply self-healing fixes" -m "Applied healing strategy: ${{ steps.analyze.outputs.strategy }}" -m "This commit was automatically created by the Infinity Orchestrator self-healing system to address recent build failures." -m "Triggered by: ${{ github.event.inputs.triggered_by }}" -m "Orchestrator Run: ${{ github.run_id }}"
             
             git push origin "$BRANCH_NAME"
             
