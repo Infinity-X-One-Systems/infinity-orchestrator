@@ -37,7 +37,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Identify repositories needing healing
         id: identify
@@ -105,12 +105,12 @@ jobs:
     
     steps:
       - name: Checkout orchestrator
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: orchestrator
       
       - name: Checkout target repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ matrix.repo.full_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
