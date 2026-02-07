@@ -40,7 +40,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Create build matrix
         id: create-matrix
@@ -96,7 +96,7 @@ jobs:
     
     steps:
       - name: Checkout ${{ matrix.repo.name }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ matrix.repo.full_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
