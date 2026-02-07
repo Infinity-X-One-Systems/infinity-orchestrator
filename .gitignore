@@ -1,0 +1,73 @@
+# Logs
+*.log
+logs/
+*.log.*
+
+# Build artifacts
+build/
+dist/
+target/
+*.o
+*.so
+*.dylib
+
+# Dependency directories
+node_modules/
+vendor/
+.venv/
+venv/
+__pycache__/
+*.egg-info/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Test coverage
+coverage/
+.coverage
+*.cover
+htmlcov/
+
+# Package manager lock files (optional - comment out if you want to track them)
+# package-lock.json
+# yarn.lock
+# Cargo.lock
+# go.sum
+
+# OS specific
+Thumbs.db
+.DS_Store
+
+# Build logs
+build-logs/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Cache
+.cache/
+*.cache
+
+# Secrets (extra safety)
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Backup files
+config/repositories.json.bak

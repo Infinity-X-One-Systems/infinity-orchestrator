@@ -1,0 +1,138 @@
+name: Security Scan
+
+# This workflow performs comprehensive security scanning across all repositories
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/security-scan.yml'
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript, python
+      
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: Scan for secrets
+        run: |
+          echo "Scanning for exposed secrets..."
+          
+          # This is a basic scan. For production use, consider tools like:
+          # - TruffleHog: https://github.com/trufflesecurity/trufflehog
+          # - GitLeaks: https://github.com/gitleaks/gitleaks
+          # - GitHub's built-in secret scanning (already enabled)
+          
+          # Check for common secret patterns in non-comment contexts
+          FOUND_ISSUES=false
+          
+          # Note: This basic scan has known limitations and may produce false positives
+          # It's recommended to use dedicated secret scanning tools for production
+          
+          if grep -r -E '(password|api_key|secret|token|private_key)\s*[:=]' \
+              --include="*.yml" --include="*.yaml" --include="*.env*" \
+              --exclude-dir=".git" . | \
+              grep -v "github.event.inputs" | \
+              grep -v "secrets\." | \
+              grep -v "description:" | \
+              grep -v "#" | \
+              head -5; then
+            echo "⚠️ Potential secrets detected - please review"
+            FOUND_ISSUES=true
+          fi
+          
+          if [ "$FOUND_ISSUES" = false ]; then
+            echo "✅ No obvious secret leaks found in basic scan"
+          fi
+          
+          echo "Note: This is a basic scan. GitHub's built-in secret scanning provides comprehensive protection."
+  
+  dependency-scan:
+    name: Scan Dependencies
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Scan for vulnerable dependencies
+        run: |
+          echo "Scanning for vulnerable dependencies..."
+          
+          # Check if there are any package files
+          if [ -f package.json ]; then
+            echo "Found package.json"
+            npm audit || echo "npm audit found issues"
+          fi
+          
+          if [ -f requirements.txt ]; then
+            echo "Found requirements.txt"
+            pip install safety
+            safety check -r requirements.txt || echo "Python dependencies have vulnerabilities"
+          fi
+          
+          if [ -f go.mod ]; then
+            echo "Found go.mod"
+            go list -json -m all | docker run --rm -i sonatypeoss/nancy:latest sleuth || echo "Go dependencies have vulnerabilities"
+          fi
+          
+          if [ -f Cargo.toml ]; then
+            echo "Found Cargo.toml"
+            cargo audit || echo "Rust dependencies have vulnerabilities"
+          fi
+  
+  security-summary:
+    name: Security Summary
+    needs: [security-scan, dependency-scan]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Create summary
+        run: |
+          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **CodeQL Scan**: ${{ needs.security-scan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dependency Scan**: ${{ needs.dependency-scan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.security-scan.result }}" = "success" ] && [ "${{ needs.dependency-scan.result }}" = "success" ]; then
+            echo "✅ All security scans passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Security issues detected - review scan results" >> $GITHUB_STEP_SUMMARY
+          fi

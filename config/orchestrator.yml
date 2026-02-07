@@ -1,0 +1,273 @@
+# Orchestrator Configuration
+# This file controls the behavior of the Infinity Orchestrator system
+
+# Repository Discovery Settings
+discovery:
+  # How often to scan for new repositories (cron format)
+  scan_interval: "0 */6 * * *"  # Every 6 hours
+  
+  # Organization to scan
+  # This can be overridden by the GH_ORG environment variable or secret
+  organization: "${GH_ORG:-Infinity-X-One-Systems}"
+  
+  # Repository filters
+  filters:
+    # Include archived repositories
+    include_archived: false
+    # Include forked repositories
+    include_forks: true
+    # Include private repositories
+    include_private: true
+    
+  # Auto-onboarding for new repositories
+  auto_onboard: true
+  
+  # Create welcome issues in new repositories
+  create_welcome_issue: true
+
+# Build Orchestration Settings
+build:
+  # Maximum number of parallel builds
+  max_parallel: 10
+  
+  # Build timeout in minutes
+  timeout_minutes: 60
+  
+  # Number of retry attempts on failure
+  retry_attempts: 3
+  
+  # Delay between retries in seconds
+  retry_delay: 300
+  
+  # Enable build caching
+  enable_cache: true
+  
+  # Cache key strategy
+  cache_strategy: "hash"  # hash, date, or manual
+  
+  # Continue on error (build remaining repos even if one fails)
+  continue_on_error: true
+  
+  # Build order strategy
+  order_strategy: "dependency"  # dependency, alphabetical, or parallel
+
+# Test Settings
+test:
+  # Run tests after build
+  run_tests: true
+  
+  # Test timeout in minutes
+  timeout_minutes: 30
+  
+  # Continue on test failure
+  continue_on_error: false
+  
+  # Coverage reporting
+  collect_coverage: true
+  
+  # Minimum coverage threshold (0-100)
+  coverage_threshold: 70
+
+# Health Monitoring Settings
+monitoring:
+  # How often to run health checks (cron format)
+  health_check_interval: "*/15 * * * *"  # Every 15 minutes
+  
+  # Number of consecutive failures before alerting
+  failure_threshold: 3
+  
+  # Create issues for failures
+  create_issues: true
+  
+  # Issue labels to apply
+  failure_labels:
+    - "orchestrator:alert"
+    - "priority:high"
+  
+  # Metrics to track
+  metrics:
+    - build_success_rate
+    - build_duration
+    - test_success_rate
+    - dependency_health
+    - security_score
+  
+  # Notification settings
+  notifications:
+    # Create GitHub issues
+    github_issues: true
+    # GitHub Discussions (if enabled)
+    github_discussions: false
+
+# Self-Healing Settings
+self_healing:
+  # Enable automatic recovery
+  enabled: true
+  
+  # Automatically retry failed builds
+  auto_retry: true
+  
+  # Maximum auto-retry attempts
+  max_auto_retries: 3
+  
+  # Automatically update dependencies on failure
+  auto_update_dependencies: true
+  
+  # Automatically fix common configuration issues
+  auto_fix_config: true
+  
+  # Create PRs for fixes
+  create_fix_prs: true
+  
+  # Auto-merge fix PRs if CI passes
+  auto_merge_fixes: false
+  
+  # Healing strategies to attempt (in order)
+  strategies:
+    - "cache_clear"
+    - "dependency_update"
+    - "config_reset"
+    - "manual_intervention"
+
+# Security Settings
+security:
+  # Run security scans
+  enable_scanning: true
+  
+  # Scan interval (cron format)
+  scan_interval: "0 2 * * *"  # Daily at 2 AM UTC
+  
+  # CodeQL analysis
+  codeql:
+    enabled: true
+    languages: ["javascript", "typescript", "python", "go", "java"]
+  
+  # Secret scanning
+  secret_scanning:
+    enabled: true
+    create_alerts: true
+  
+  # Dependency scanning
+  dependency_scanning:
+    enabled: true
+    auto_fix: true
+    severity_threshold: "moderate"  # low, moderate, high, critical
+  
+  # Security policy enforcement
+  enforce_policies: true
+  
+  # Block PRs with security issues
+  block_on_vulnerabilities: false
+
+# Dependency Management
+dependencies:
+  # Enable Dependabot
+  dependabot_enabled: true
+  
+  # Auto-merge dependabot PRs
+  auto_merge_minor: false
+  auto_merge_patch: true
+  
+  # Update interval
+  update_interval: "weekly"  # daily, weekly, monthly
+  
+  # Group updates
+  group_updates: true
+
+# Workflow Settings
+workflows:
+  # Workflow timeout in minutes
+  default_timeout: 60
+  
+  # Concurrency settings
+  concurrency:
+    group: "orchestrator"
+    cancel_in_progress: false
+  
+  # Artifact retention
+  artifact_retention_days: 30
+  
+  # Log retention
+  log_retention_days: 90
+
+# GitHub App Settings
+github_app:
+  # Use GitHub App for authentication (preferred)
+  enabled: true
+  
+  # App installation strategy
+  installation: "organization"  # organization or repository
+  
+  # Permissions required (documented for reference)
+  permissions:
+    actions: "write"
+    contents: "write"
+    issues: "write"
+    pull_requests: "write"
+    workflows: "write"
+    metadata: "read"
+
+# Performance Settings
+performance:
+  # Enable performance monitoring
+  enabled: true
+  
+  # Build artifact caching
+  cache_artifacts: true
+  
+  # Compress artifacts
+  compress_artifacts: true
+  
+  # Optimize matrix builds
+  optimize_matrix: true
+  
+  # Resource limits
+  limits:
+    max_concurrent_workflows: 20
+    max_workflow_duration: 360  # minutes
+
+# Reporting Settings
+reporting:
+  # Generate build reports
+  generate_reports: true
+  
+  # Report format
+  format: "markdown"  # markdown, json, html
+  
+  # Report frequency
+  frequency: "daily"  # daily, weekly, monthly
+  
+  # Include metrics
+  include_metrics: true
+  
+  # Include trends
+  include_trends: true
+  
+  # Publish reports
+  publish_reports: true
+  publish_location: "wiki"  # wiki, discussion, or issue
+
+# Advanced Settings
+advanced:
+  # Debug mode (verbose logging)
+  debug_mode: false
+  
+  # Dry run mode (no actual changes)
+  dry_run: false
+  
+  # Custom labels
+  custom_labels:
+    orchestrator: "orchestrator"
+    auto_generated: "auto-generated"
+    health_check: "health-check"
+  
+  # Rate limiting
+  rate_limit:
+    enabled: true
+    requests_per_hour: 5000
+  
+  # Experimental features
+  experimental:
+    ai_failure_prediction: false
+    cost_optimization: false
+    advanced_analytics: false
