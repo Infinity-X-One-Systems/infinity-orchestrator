@@ -60,7 +60,7 @@ jobs:
           
           # Fetch all repositories from the organization
           echo "Fetching repository list..."
-          REPOS=$(gh repo list "$ORG_NAME" --json name,description,defaultBranchRef,isPrivate,isArchived,isDisabled,primaryLanguage,repositoryTopics,createdAt,updatedAt --limit 1000)
+          REPOS=$(gh repo list "$ORG_NAME" --json name,description,defaultBranchRef,isPrivate,isArchived,primaryLanguage,repositoryTopics,createdAt,updatedAt --limit 1000)
           
           # Count repositories
           REPO_COUNT=$(echo "$REPOS" | jq '. | length')
@@ -81,7 +81,7 @@ jobs:
               default_branch: (.defaultBranchRef.name // "main"),
               private: .isPrivate,
               archived: .isArchived,
-              disabled: .isDisabled,
+              disabled: false,
               topics: [.repositoryTopics[].topic.name],
               created_at: .createdAt,
               updated_at: .updatedAt,
@@ -125,11 +125,11 @@ jobs:
             }]'),
             "statistics": {
               "total_repositories": $(echo "$REPOS" | jq '. | length'),
-              "active_repositories": $(echo "$REPOS" | jq '[.[] | select(.isArchived == false and .isDisabled == false)] | length'),
+              "active_repositories": $(echo "$REPOS" | jq '[.[] | select(.isArchived == false)] | length'),
               "archived_repositories": $(echo "$REPOS" | jq '[.[] | select(.isArchived == true)] | length'),
               "languages": $(echo "$REPOS" | jq 'group_by(.primaryLanguage.name // "unknown") | map({key: .[0].primaryLanguage.name // "unknown", value: length}) | from_entries'),
               "health_summary": {
-                "healthy": $(echo "$REPOS" | jq '[.[] | select(.isArchived == false and .isDisabled == false)] | length'),
+                "healthy": $(echo "$REPOS" | jq '[.[] | select(.isArchived == false)] | length'),
                 "warning": 0,
                 "critical": 0
               }
