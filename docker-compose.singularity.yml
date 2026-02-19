@@ -1,0 +1,328 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SINGULARITY MESH - Master Orchestration Stack
+# ═══════════════════════════════════════════════════════════════════════════
+# Sovereign multi-repo parallel orchestration for Infinity X One Systems
+# Built for FAANG-grade performance with zero manual intervention
+# ═══════════════════════════════════════════════════════════════════════════
+
+version: '3.8'
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NETWORKS: Sovereign Mesh Communication Layer
+# ═══════════════════════════════════════════════════════════════════════════
+networks:
+  singularity-mesh:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+  
+  vision-isolated:
+    driver: bridge
+    internal: true  # Shadow network for vision operations
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VOLUMES: Persistent State Management
+# ═══════════════════════════════════════════════════════════════════════════
+volumes:
+  redis-data:
+    driver: local
+  chroma-data:
+    driver: local
+  factory-artifacts:
+    driver: local
+  vision-sessions:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1024m,uid=1000
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SERVICES: The Intelligence Fleet
+# ═══════════════════════════════════════════════════════════════════════════
+services:
+  
+  # ───────────────────────────────────────────────────────────────────────────
+  # REDIS CACHE: Shared Memory Bus (The Synaptic Bridge)
+  # ───────────────────────────────────────────────────────────────────────────
+  redis-cache:
+    image: redis:7-alpine
+    container_name: infinity-redis-cache
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 60 1000
+      --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - singularity-mesh
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # KNOWLEDGE BASE: ChromaDB Vector Store (The Eternal Memory)
+  # ───────────────────────────────────────────────────────────────────────────
+  knowledge-base:
+    build:
+      context: ./stacks/knowledge
+      dockerfile: Dockerfile
+      args:
+        CHROMA_VERSION: ${CHROMA_VERSION:-0.4.22}
+    image: infinity/knowledge-base:latest
+    container_name: infinity-knowledge-base
+    restart: unless-stopped
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+      - CHROMA_SERVER_CORS_ALLOW_ORIGINS=["*"]
+      - ALLOW_RESET=true
+      - IS_PERSISTENT=true
+      - ANONYMIZED_TELEMETRY=false
+    ports:
+      - "${CHROMA_PORT:-8000}:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    networks:
+      - singularity-mesh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # BROWSERLESS: Headless Browser Engine (The Shadow Portal)
+  # ───────────────────────────────────────────────────────────────────────────
+  browserless:
+    image: browserless/chrome:latest
+    container_name: infinity-browserless
+    restart: unless-stopped
+    environment:
+      - MAX_CONCURRENT_SESSIONS=10
+      - CONNECTION_TIMEOUT=600000
+      - MAX_QUEUE_LENGTH=50
+      - PREBOOT_CHROME=true
+      - KEEP_ALIVE=true
+      - ENABLE_DEBUGGER=false
+      - CHROME_REFRESH_TIME=86400000
+      - DEFAULT_BLOCK_ADS=true
+      - DEFAULT_STEALTH=true
+      - WORKSPACE_DELETE_EXPIRED=true
+      - FUNCTION_ENABLE_INCOGNITO_MODE=true
+    ports:
+      - "${BROWSERLESS_PORT:-3000}:3000"
+    networks:
+      - singularity-mesh
+      - vision-isolated
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/pressure"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    shm_size: 2gb
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # NEURAL CORE: The Brain (infinity-core Agent)
+  # ───────────────────────────────────────────────────────────────────────────
+  neural-core:
+    build:
+      context: ./stacks/core
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.11}
+        CORE_REPO_URL: ${CORE_REPO_URL:-https://github.com/Infinity-X-One-Systems/infinity-core.git}
+        CORE_BRANCH: ${CORE_BRANCH:-main}
+    image: infinity/neural-core:latest
+    container_name: infinity-neural-core
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=redis-cache
+      - REDIS_PORT=6379
+      - CHROMA_HOST=knowledge-base
+      - CHROMA_PORT=8000
+      - BROWSERLESS_URL=http://browserless:3000
+      - AGENT_MODE=${CORE_AGENT_MODE:-autonomous}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis-cache:
+        condition: service_healthy
+      knowledge-base:
+        condition: service_healthy
+      browserless:
+        condition: service_healthy
+    networks:
+      - singularity-mesh
+    volumes:
+      - ${CORE_REPO_PATH:-../infinity-core}:/workspace/infinity-core:ro
+      - ./logs/core:/logs
+    working_dir: /workspace/infinity-core
+    command: python agents/brain.py
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # VISION CORTEX: The Eyes (infinity-vision with Playwright Stealth)
+  # ───────────────────────────────────────────────────────────────────────────
+  vision-cortex:
+    build:
+      context: ./stacks/vision
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.11}
+        VISION_REPO_URL: ${VISION_REPO_URL:-https://github.com/Infinity-X-One-Systems/infinity-vision.git}
+        VISION_BRANCH: ${VISION_BRANCH:-main}
+    image: infinity/vision-cortex:latest
+    container_name: infinity-vision-cortex
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=redis-cache
+      - REDIS_PORT=6379
+      - CHROMA_HOST=knowledge-base
+      - CHROMA_PORT=8000
+      - BROWSERLESS_URL=http://browserless:3000
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      - STEALTH_MODE=true
+      - HEADLESS=true
+      - VISION_MODE=${VISION_MODE:-shadow}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis-cache:
+        condition: service_healthy
+      knowledge-base:
+        condition: service_healthy
+      browserless:
+        condition: service_healthy
+    networks:
+      - singularity-mesh
+      - vision-isolated
+    volumes:
+      - ${VISION_REPO_PATH:-../infinity-vision}:/workspace/infinity-vision:ro
+      - vision-sessions:/tmp/playwright
+      - ./logs/vision:/logs
+    working_dir: /workspace/infinity-vision
+    command: python agent_vision.py
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 3G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    shm_size: 1gb
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # FACTORY ARM: The Builder (infinity-factory Pipelines)
+  # ───────────────────────────────────────────────────────────────────────────
+  factory-arm:
+    build:
+      context: ./stacks/factory
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.11}
+        FACTORY_REPO_URL: ${FACTORY_REPO_URL:-https://github.com/Infinity-X-One-Systems/infinity-factory.git}
+        FACTORY_BRANCH: ${FACTORY_BRANCH:-main}
+    image: infinity/factory-arm:latest
+    container_name: infinity-factory-arm
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=redis-cache
+      - REDIS_PORT=6379
+      - CHROMA_HOST=knowledge-base
+      - CHROMA_PORT=8000
+      - FACTORY_MODE=${FACTORY_MODE:-continuous}
+      - BUILD_PARALLEL=${BUILD_PARALLEL:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis-cache:
+        condition: service_healthy
+      knowledge-base:
+        condition: service_healthy
+    networks:
+      - singularity-mesh
+    volumes:
+      - ${FACTORY_REPO_PATH:-../infinity-factory}:/workspace/infinity-factory:ro
+      - factory-artifacts:/artifacts
+      - ./logs/factory:/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker-in-Docker capability
+    working_dir: /workspace/infinity-factory
+    command: python pipelines/orchestrate.py
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+# ═══════════════════════════════════════════════════════════════════════════
+# END OF SINGULARITY MESH CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════
+# To deploy: docker-compose -f docker-compose.singularity.yml up -d
+# To monitor: docker-compose -f docker-compose.singularity.yml logs -f
+# To stop: docker-compose -f docker-compose.singularity.yml down
+# ═══════════════════════════════════════════════════════════════════════════
