@@ -268,6 +268,22 @@ infinity-orchestrator/
 
 ## 🔐 Security
 
+### Important Security Considerations
+
+**Docker Socket Access (Factory Arm)**:
+The Factory Arm service mounts the Docker socket (`/var/run/docker.sock`) as read-only for Docker-in-Docker capabilities. While necessary for build operations, this presents security implications:
+
+- **Risk**: Even read-only socket access can be exploited to gain host access
+- **Mitigation**: Service runs as non-root user (UID 1000) with limited permissions
+- **Production**: Consider using Docker API proxies (e.g., [docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy)) with restricted permissions
+- **Alternative**: Use a dedicated build agent or CI/CD system for sensitive environments
+
+**Recommendation**: For production environments, implement one of these alternatives:
+1. Use a Docker API proxy with restricted permissions
+2. Run Factory Arm on an isolated host
+3. Use Kubernetes with proper RBAC policies
+4. Integrate with GitHub Actions or other CI/CD instead
+
 ### Stealth Features (Vision Cortex)
 
 The Vision Cortex includes advanced anti-detection measures:

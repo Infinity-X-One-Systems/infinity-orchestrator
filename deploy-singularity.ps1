@@ -157,12 +157,12 @@ function Write-Success {
     Write-Status -Icon "✅" -Message $Message -Color "Green"
 }
 
-function Write-Error {
+function Write-ErrorStatus {
     param([string]$Message)
     Write-Status -Icon "❌" -Message $Message -Color "Red"
 }
 
-function Write-Warning {
+function Write-WarningStatus {
     param([string]$Message)
     Write-Status -Icon "⚠️" -Message $Message -Color "Yellow"
 }
@@ -191,7 +191,7 @@ function Test-Prerequisites {
         $dockerVersion = (docker --version) -replace '.*version\s+([0-9.]+).*', '$1'
         Write-Success "Docker installed: $dockerVersion"
     } else {
-        Write-Error "Docker not found"
+        Write-ErrorStatus "Docker not found"
         $missing += "Docker"
     }
     
@@ -200,7 +200,7 @@ function Test-Prerequisites {
         $composeVersion = (docker-compose --version) -replace '.*version\s+([0-9.]+).*', '$1'
         Write-Success "Docker Compose installed: $composeVersion"
     } else {
-        Write-Error "Docker Compose not found"
+        Write-ErrorStatus "Docker Compose not found"
         $missing += "Docker Compose"
     }
     
@@ -209,7 +209,7 @@ function Test-Prerequisites {
         $gitVersion = (git --version) -replace '.*version\s+([0-9.]+).*', '$1'
         Write-Success "Git installed: $gitVersion"
     } else {
-        Write-Error "Git not found"
+        Write-ErrorStatus "Git not found"
         $missing += "Git"
     }
     
@@ -217,13 +217,13 @@ function Test-Prerequisites {
     if (Test-Path $ComposeFile) {
         Write-Success "Compose file found: docker-compose.singularity.yml"
     } else {
-        Write-Error "Compose file not found"
+        Write-ErrorStatus "Compose file not found"
         $missing += "docker-compose.singularity.yml"
     }
     
     if ($missing.Count -gt 0) {
-        Write-Error "Missing prerequisites: $($missing -join ', ')"
-        Write-Warning "Please install missing components and try again."
+        Write-ErrorStatus "Missing prerequisites: $($missing -join ', ')"
+        Write-WarningStatus "Please install missing components and try again."
         exit 1
     }
     
@@ -242,9 +242,9 @@ function Initialize-Environment {
             Write-Info "Creating .env from template..."
             Copy-Item $EnvTemplate $EnvFile
             Write-Success ".env file created"
-            Write-Warning "Please review and update .env with your configuration"
+            Write-WarningStatus "Please review and update .env with your configuration"
         } else {
-            Write-Warning ".env.template not found, creating minimal .env"
+            Write-WarningStatus ".env.template not found, creating minimal .env"
             @"
 # Minimal Singularity Mesh Configuration
 REDIS_PORT=6379
@@ -311,7 +311,7 @@ function Sync-Repository {
         return $true
     } catch {
         Write-Host " ✗" -ForegroundColor Red
-        Write-Warning "Failed to sync $($Repo.Name): $_"
+        Write-WarningStatus "Failed to sync $($Repo.Name): $_"
         return $false
     }
 }
@@ -391,7 +391,7 @@ function Build-Services {
     if ($LASTEXITCODE -eq 0) {
         Write-Success "All Docker images built successfully"
     } else {
-        Write-Error "Docker build failed with exit code $LASTEXITCODE"
+        Write-ErrorStatus "Docker build failed with exit code $LASTEXITCODE"
         exit $LASTEXITCODE
     }
 }
@@ -405,7 +405,7 @@ function Start-Services {
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Singularity Mesh deployed successfully"
     } else {
-        Write-Error "Deployment failed with exit code $LASTEXITCODE"
+        Write-ErrorStatus "Deployment failed with exit code $LASTEXITCODE"
         exit $LASTEXITCODE
     }
 }
@@ -419,7 +419,7 @@ function Stop-Services {
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Singularity Mesh stopped"
     } else {
-        Write-Error "Failed to stop services"
+        Write-ErrorStatus "Failed to stop services"
         exit $LASTEXITCODE
     }
 }
@@ -469,7 +469,7 @@ function Test-ServiceHealth {
             }
         } catch {
             Write-Host " ✗" -ForegroundColor Red
-            Write-Warning "Health check failed: $_"
+            Write-WarningStatus "Health check failed: $_"
         }
     }
     
@@ -533,7 +533,7 @@ function Invoke-SingularityDeploy {
 try {
     Invoke-SingularityDeploy
 } catch {
-    Write-Error "Deployment failed: $_"
+    Write-ErrorStatus "Deployment failed: $_"
     Write-Host $_.ScriptStackTrace
     exit 1
 }

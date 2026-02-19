@@ -73,72 +73,15 @@ RUN pip install --no-cache-dir \
     toml
 
 # Create necessary directories
-RUN mkdir -p /logs /artifacts && \
-    chmod -R 777 /logs /artifacts
+RUN mkdir -p /logs /artifacts
 
-# Create pipeline orchestration helper
-COPY <<'EOF' /workspace/pipeline_config.py
-"""
-Factory Pipeline Configuration and Utilities
-Manages build pipelines and artifact generation
-"""
+# Copy pipeline configuration
+COPY pipeline_config.py /workspace/pipeline_config.py
 
-import os
-import json
-import asyncio
-from typing import Dict, List, Optional
-from dataclasses import dataclass
-from enum import Enum
-
-class PipelineStage(Enum):
-    """Pipeline execution stages"""
-    INIT = "init"
-    BUILD = "build"
-    TEST = "test"
-    PACKAGE = "package"
-    DEPLOY = "deploy"
-    CLEANUP = "cleanup"
-
-@dataclass
-class BuildConfig:
-    """Build configuration for a repository"""
-    repo_name: str
-    build_command: str
-    test_command: Optional[str] = None
-    docker_build: bool = False
-    dockerfile_path: str = "./Dockerfile"
-    parallel_safe: bool = True
-    dependencies: List[str] = None
-
-class PipelineOrchestrator:
-    """Orchestrates multi-repo build pipelines"""
-    
-    def __init__(self, redis_host: str, redis_port: int):
-        self.redis_host = redis_host
-        self.redis_port = redis_port
-        self.build_queue = []
-    
-    async def execute_parallel_builds(self, configs: List[BuildConfig]):
-        """Execute builds in parallel where possible"""
-        tasks = []
-        for config in configs:
-            if config.parallel_safe:
-                tasks.append(self.build_repo(config))
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        return results
-    
-    async def build_repo(self, config: BuildConfig):
-        """Build a single repository"""
-        print(f"Building {config.repo_name}...")
-        # Implementation will be in the actual factory code
-        pass
-
-# Export for use in orchestrate.py
-__all__ = ['PipelineStage', 'BuildConfig', 'PipelineOrchestrator']
-EOF
-
-RUN chmod 644 /workspace/pipeline_config.py
+# Set proper ownership and permissions
+RUN useradd -m -u 1000 agent && \
+    chown -R agent:agent /workspace /logs /artifacts && \
+    chmod -R 755 /logs /artifacts
 
 # Health check script
 COPY <<'EOF' /usr/local/bin/healthcheck.sh
@@ -147,11 +90,6 @@ python -c "import sys; sys.exit(0)" || exit 1
 EOF
 
 RUN chmod +x /usr/local/bin/healthcheck.sh
-
-# Set user for security
-# Note: Docker socket operations may require additional permissions
-RUN useradd -m -u 1000 agent && \
-    chown -R agent:agent /workspace /logs /artifacts
 
 # Add agent to docker group (if exists) for Docker socket access
 RUN groupadd -f -g 999 docker && usermod -aG docker agent
