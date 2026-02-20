@@ -46,6 +46,24 @@ if [ -f "$REPO_ROOT/config/repositories.json" ] && command -v jq &>/dev/null; th
     ACTIVE_COUNT="$(jq '.statistics.active_repositories // "unknown"' "$REPO_ROOT/config/repositories.json" 2>/dev/null || echo 'unknown')"
 fi
 
+# Org repo index summary
+ORG_INDEX_UPDATED="(pending first run)"
+ORG_INDEX_TOTAL="—"
+ORG_INDEX_ACTIVE="—"
+if [ -f "$REPO_ROOT/.infinity/ORG_REPO_INDEX.json" ] && command -v jq &>/dev/null; then
+    ORG_INDEX_UPDATED="$(jq -r '.last_updated // "(unknown)"' "$REPO_ROOT/.infinity/ORG_REPO_INDEX.json" 2>/dev/null || echo '(unknown)')"
+    ORG_INDEX_TOTAL="$(jq -r '.statistics.total // "—"' "$REPO_ROOT/.infinity/ORG_REPO_INDEX.json" 2>/dev/null || echo '—')"
+    ORG_INDEX_ACTIVE="$(jq -r '.statistics.active // "—"' "$REPO_ROOT/.infinity/ORG_REPO_INDEX.json" 2>/dev/null || echo '—')"
+fi
+
+# Endpoint registry summary
+ENDPOINT_REGISTRY_VERSION="(not found)"
+ENDPOINT_REGISTRY_CATEGORIES="—"
+if [ -f "$REPO_ROOT/.infinity/connectors/endpoint-registry.json" ] && command -v jq &>/dev/null; then
+    ENDPOINT_REGISTRY_VERSION="$(jq -r '.version // "(unknown)"' "$REPO_ROOT/.infinity/connectors/endpoint-registry.json" 2>/dev/null || echo '(unknown)')"
+    ENDPOINT_REGISTRY_CATEGORIES="$(jq '.categories | keys | length' "$REPO_ROOT/.infinity/connectors/endpoint-registry.json" 2>/dev/null || echo '—')"
+fi
+
 # Build file tree (non-hidden, max depth 3)
 FILE_TREE="$(find "$REPO_ROOT" \
     -maxdepth 3 \
@@ -142,6 +160,46 @@ ${SCRIPT_LIST}
 
 - \`config/orchestrator.yml\` — System-wide orchestrator settings
 - \`config/repositories.json\` — Auto-generated repository manifest (updated every 6 hours)
+
+---
+
+## 🗄️ Org Repo Index
+
+| Field | Value |
+|-------|-------|
+| Last updated | ${ORG_INDEX_UPDATED} |
+| Total repositories | ${ORG_INDEX_TOTAL} |
+| Active repositories | ${ORG_INDEX_ACTIVE} |
+
+Files: \`.infinity/ORG_REPO_INDEX.json\` (machine-readable) · \`.infinity/ORG_REPO_INDEX.md\` (human-readable)  
+Refresh workflow: \`.github/workflows/org-repo-index.yml\` (every 6 hours)
+
+---
+
+## 🔌 Endpoint Registry
+
+| Field | Value |
+|-------|-------|
+| Registry version | ${ENDPOINT_REGISTRY_VERSION} |
+| Categories | ${ENDPOINT_REGISTRY_CATEGORIES} |
+
+Files: \`.infinity/connectors/endpoint-registry.json\` · \`.infinity/connectors/endpoint-registry.md\` · \`.infinity/connectors/auth-matrix.md\`
+
+---
+
+## 🛡️ Governance (TAP Protocol)
+
+- Policy: \`.infinity/policies/tap-protocol.md\`
+- Enforcement runbook: \`.infinity/runbooks/governance-enforcement.md\`
+- Memory sync runbook: \`.infinity/runbooks/memory-sync.md\`
+- Active rules: P-001 (no secrets in logs) · P-003 (bot attribution) · P-005 (App tokens only) · P-007 (graceful memory degradation)
+
+---
+
+## 🤖 Agent Bootstrap
+
+Run \`.infinity/scripts/Invoke-InfinityAgentBootstrap.ps1\` to emit a structured JSON bootstrap payload.
+The script is defensive and idempotent — it degrades gracefully if local memory is absent, preferring GitHub-first retrieval when App credentials are available.
 
 ---
 
