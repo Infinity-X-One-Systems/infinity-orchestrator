@@ -61,7 +61,7 @@ jobs:
 
     steps:
       - name: Checkout orchestrator repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # Use GITHUB_TOKEN; the script will use the App token for the push.
           token: ${{ secrets.GITHUB_TOKEN }}
