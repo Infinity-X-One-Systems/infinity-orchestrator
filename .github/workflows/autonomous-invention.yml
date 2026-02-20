@@ -1,0 +1,341 @@
+name: Infinity Autonomous Engine
+
+# Phase 5 Autonomy — Human Authority Supersedes
+# Multi-agent orchestration: discover → score → build → validate → deploy
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"   # Every 3 hours
+  workflow_dispatch:
+    inputs:
+      goal:
+        description: 'High-level goal to execute (optional, runs full cycle if empty)'
+        required: false
+        type: string
+      dry_run:
+        description: 'Dry run — plan without executing mutations'
+        required: false
+        type: boolean
+        default: false
+      skip_phases:
+        description: 'Comma-separated phases to skip: discovery,scoring,sandbox,validation,deploy'
+        required: false
+        type: string
+  repository_dispatch:
+    types: [invention_trigger]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+  id-token: write
+
+concurrency:
+  group: autonomous-invention
+  cancel-in-progress: false
+
+jobs:
+
+  # ─────────────────────────────────────────────────
+  # PHASE 1 — Discovery: scrape, ingest, index
+  # ─────────────────────────────────────────────────
+  discovery:
+    name: Phase 1 — Discovery
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.inputs.skip_phases, 'discovery') }}
+
+    outputs:
+      ideas_found: ${{ steps.discover.outputs.ideas_found }}
+      index_path: ${{ steps.discover.outputs.index_path }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install discovery dependencies
+        run: pip install --quiet requests pyyaml
+
+      - name: Run discovery agent
+        id: discover
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG_NAME: ${{ secrets.GH_ORG || 'Infinity-X-One-Systems' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          GOAL: ${{ github.event.inputs.goal || github.event.client_payload.goal || '' }}
+        run: |
+          python stacks/agents/discovery_agent.py \
+            --org "$ORG_NAME" \
+            --output /tmp/discovery_index.json \
+            --goal "$GOAL"
+
+          IDEAS=$(jq '. | length' /tmp/discovery_index.json 2>/dev/null || echo 0)
+          echo "ideas_found=$IDEAS" >> $GITHUB_OUTPUT
+          echo "index_path=/tmp/discovery_index.json" >> $GITHUB_OUTPUT
+          echo "Discovery complete: $IDEAS signals indexed" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload discovery index
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovery-index-${{ github.run_id }}
+          path: /tmp/discovery_index.json
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────
+  # PHASE 2 — Scoring: predict, simulate, rank
+  # ─────────────────────────────────────────────────
+  scoring:
+    name: Phase 2 — Scoring
+    runs-on: ubuntu-latest
+    needs: discovery
+    if: ${{ needs.discovery.outputs.ideas_found > 0 && !contains(github.event.inputs.skip_phases, 'scoring') }}
+
+    outputs:
+      top_ideas: ${{ steps.score.outputs.top_ideas }}
+      scorecard_path: ${{ steps.score.outputs.scorecard_path }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install scoring dependencies
+        run: pip install --quiet pyyaml
+
+      - name: Download discovery index
+        uses: actions/download-artifact@v4
+        with:
+          name: discovery-index-${{ github.run_id }}
+          path: /tmp/
+
+      - name: Run scoring engine
+        id: score
+        run: |
+          python stacks/agents/scoring_agent.py \
+            --input /tmp/discovery_index.json \
+            --output /tmp/idea_scorecard.json \
+            --threshold 0.6
+
+          TOP=$(jq '[.[] | select(.score >= 0.6)] | length' /tmp/idea_scorecard.json 2>/dev/null || echo 0)
+          echo "top_ideas=$TOP" >> $GITHUB_OUTPUT
+          echo "scorecard_path=/tmp/idea_scorecard.json" >> $GITHUB_OUTPUT
+
+          echo "## Scoring Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Ideas scored: $(jq '. | length' /tmp/idea_scorecard.json)" >> $GITHUB_STEP_SUMMARY
+          echo "- Above threshold (≥0.6): $TOP" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload scorecard
+        uses: actions/upload-artifact@v4
+        with:
+          name: idea-scorecard-${{ github.run_id }}
+          path: /tmp/idea_scorecard.json
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────
+  # PHASE 3 — Sandbox: scaffold, build, test
+  # ─────────────────────────────────────────────────
+  sandbox:
+    name: Phase 3 — Sandbox Build
+    runs-on: ubuntu-latest
+    needs: scoring
+    if: ${{ needs.scoring.outputs.top_ideas > 0 && !contains(github.event.inputs.skip_phases, 'sandbox') && github.event.inputs.dry_run != 'true' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download scorecard
+        uses: actions/download-artifact@v4
+        with:
+          name: idea-scorecard-${{ github.run_id }}
+          path: /tmp/
+
+      - name: Run sandbox builder
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG_NAME: ${{ secrets.GH_ORG || 'Infinity-X-One-Systems' }}
+        run: |
+          python stacks/agents/sandbox_agent.py \
+            --scorecard /tmp/idea_scorecard.json \
+            --org "$ORG_NAME" \
+            --template-dir stacks/templates
+
+          echo "## Sandbox Build" >> $GITHUB_STEP_SUMMARY
+          echo "Sandbox build step completed." >> $GITHUB_STEP_SUMMARY
+
+  # ─────────────────────────────────────────────────
+  # PHASE 4 — TAP Validation Gate
+  # ─────────────────────────────────────────────────
+  validation:
+    name: Phase 4 — TAP Validation
+    runs-on: ubuntu-latest
+    needs: [discovery, scoring]
+    if: ${{ !contains(github.event.inputs.skip_phases, 'validation') }}
+
+    outputs:
+      passed: ${{ steps.tap.outputs.passed }}
+      report_path: ${{ steps.tap.outputs.report_path }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install validation dependencies
+        run: pip install --quiet pyyaml
+
+      - name: Run TAP validator
+        id: tap
+        run: |
+          python stacks/agents/validator_agent.py \
+            --repo-root . \
+            --output /tmp/tap_report.json
+
+          PASSED=$(jq '.passed' /tmp/tap_report.json 2>/dev/null || echo 'false')
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "report_path=/tmp/tap_report.json" >> $GITHUB_STEP_SUMMARY
+
+          echo "## TAP Validation Report" >> $GITHUB_STEP_SUMMARY
+          jq -r '.checks[] | "- \(if .ok then "✅" else "❌" end) \(.name)"' /tmp/tap_report.json >> $GITHUB_STEP_SUMMARY || true
+
+      - name: Open issue on validation failure
+        if: steps.tap.outputs.passed == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 TAP Validation Failed — Autonomous Engine',
+              body: `## TAP Validation Failure\n\nThe autonomous engine TAP validation gate failed.\n\n**Run**: [#${context.runId}](${context.payload.repository.html_url}/actions/runs/${context.runId})\n**Timestamp**: ${new Date().toISOString()}\n\nReview the validation report in the workflow logs before merging any auto-generated changes.\n\n---\n*Auto-created by Infinity Autonomous Engine*`,
+              labels: ['orchestrator:alert', 'tap-validation', 'priority:high']
+            });
+
+      - name: Upload TAP report
+        uses: actions/upload-artifact@v4
+        with:
+          name: tap-report-${{ github.run_id }}
+          path: /tmp/tap_report.json
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────
+  # PHASE 5 — Documentation Generation
+  # ─────────────────────────────────────────────────
+  documentation:
+    name: Phase 5 — Documentation
+    runs-on: ubuntu-latest
+    needs: validation
+    if: ${{ needs.validation.outputs.passed == 'true' && !contains(github.event.inputs.skip_phases, 'deploy') }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-${{ github.run_id }}'
+          path: /tmp/artifacts/
+          merge-multiple: true
+
+      - name: Generate documentation
+        run: |
+          python stacks/agents/reporter_agent.py \
+            --run-id "${{ github.run_id }}" \
+            --artifacts-dir /tmp/artifacts \
+            --output docs/
+
+      - name: Commit documentation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet docs/ 2>/dev/null; then
+            git add docs/
+            git commit -m "docs(autonomous): update run report [${{ github.run_id }}]"
+            git push
+          else
+            echo "No documentation changes to commit."
+          fi
+
+  # ─────────────────────────────────────────────────
+  # PHASE 6 — Telemetry & Reflection
+  # ─────────────────────────────────────────────────
+  telemetry:
+    name: Phase 6 — Telemetry
+    runs-on: ubuntu-latest
+    needs: [discovery, scoring, validation]
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write telemetry log
+        run: |
+          mkdir -p logs/telemetry
+          RUN_LOG="logs/telemetry/run-${{ github.run_id }}.json"
+          cat > "$RUN_LOG" << EOF
+          {
+            "run_id": "${{ github.run_id }}",
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "trigger": "${{ github.event_name }}",
+            "goal": "${{ github.event.inputs.goal || github.event.client_payload.goal || '' }}",
+            "dry_run": ${{ github.event.inputs.dry_run || 'false' }},
+            "phases": {
+              "discovery":    "${{ needs.discovery.result }}",
+              "scoring":      "${{ needs.scoring.result }}",
+              "validation":   "${{ needs.validation.result }}"
+            },
+            "metrics": {
+              "ideas_found":  ${{ needs.discovery.outputs.ideas_found || 0 }},
+              "top_ideas":    ${{ needs.scoring.outputs.top_ideas || 0 }},
+              "tap_passed":   ${{ needs.validation.outputs.passed || 'false' }}
+            }
+          }
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add logs/telemetry/
+          git commit -m "chore(telemetry): log run ${{ github.run_id }}" || echo "No changes to commit."
+          git push || echo "Push skipped (no changes)."
+
+      - name: Create run summary
+        run: |
+          echo "## 🚀 Autonomous Engine Run Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Phase | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Discovery | ${{ needs.discovery.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Scoring | ${{ needs.scoring.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Validation | ${{ needs.validation.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
