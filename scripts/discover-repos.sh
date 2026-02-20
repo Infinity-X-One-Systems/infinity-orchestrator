@@ -56,7 +56,7 @@ discover_repositories() {
     # Fetch repositories
     local repos
     repos=$(gh repo list "$ORG_NAME" \
-        --json name,description,defaultBranchRef,isPrivate,isArchived,isDisabled,primaryLanguage,repositoryTopics,createdAt,updatedAt \
+        --json name,description,defaultBranchRef,isPrivate,isArchived,primaryLanguage,repositoryTopics,createdAt,updatedAt \
         --limit 1000)
     
     local count
@@ -178,7 +178,7 @@ EOF
                 default_branch: (.defaultBranchRef.name // "main"),
                 private: .isPrivate,
                 archived: .isArchived,
-                disabled: .isDisabled,
+                disabled: false,
                 topics: [.repositoryTopics[].topic.name],
                 created_at: .createdAt,
                 updated_at: .updatedAt,
@@ -208,7 +208,7 @@ EOF
     total=$(echo "$repos" | jq '. | length')
     
     local active
-    active=$(echo "$repos" | jq '[.[] | select(.isArchived == false and .isDisabled == false)] | length')
+    active=$(echo "$repos" | jq '[.[] | select(.isArchived == false)] | length')
     
     local archived
     archived=$(echo "$repos" | jq '[.[] | select(.isArchived == true)] | length')
