@@ -1,0 +1,101 @@
+name: Memory Sync
+
+# Synchronises .infinity memory artifacts from the canonical source repository
+# (Infinity-X-One-Systems/infinity-core-memory) into this orchestrator repo.
+#
+# Cross-repo push trigger
+# ─────────────────────────────────────────────────────────────────────────────
+# GitHub Actions cannot directly trigger a workflow in repo B when repo A
+# receives a push.  To get near-real-time sync, add the following workflow to
+# infinity-core-memory/.github/workflows/notify-orchestrator.yml:
+#
+#   on:
+#     push:
+#       branches: [main]
+#       paths: ['.infinity/**']
+#   jobs:
+#     dispatch:
+#       runs-on: ubuntu-latest
+#       steps:
+#         - uses: actions/github-script@v7
+#           with:
+#             github-token: ${{ secrets.ORCHESTRATOR_PAT }}   # PAT with repo scope on orchestrator
+#             script: |
+#               await github.rest.repos.createDispatchEvent({
+#                 owner: 'Infinity-X-One-Systems',
+#                 repo:  'infinity-orchestrator',
+#                 event_type: 'memory-updated',
+#               });
+#
+# The `repository_dispatch` trigger below will then fire automatically.
+# Until that workflow is configured, the hourly schedule keeps the workspace
+# fresh with at most 60 minutes of drift.
+
+on:
+  # Allow manual runs from the Actions UI.
+  workflow_dispatch:
+    inputs:
+      memory_ref:
+        description: 'Branch/ref in infinity-core-memory to sync from'
+        required: false
+        default: 'main'
+        type: string
+
+  # Hourly schedule — covers cases where the cross-repo dispatch is not set up.
+  schedule:
+    - cron: '0 * * * *'
+
+  # Fires when infinity-core-memory sends a repository_dispatch event with
+  # event_type: 'memory-updated'.  See the cross-repo push trigger note above.
+  repository_dispatch:
+    types:
+      - memory-updated
+
+permissions:
+  contents: write   # required to commit and push .infinity artifacts
+
+jobs:
+  sync-memory:
+    name: Sync Memory Artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout orchestrator repository
+        uses: actions/checkout@v4
+        with:
+          # Use GITHUB_TOKEN; the script will use the App token for the push.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
+      - name: Run memory sync script
+        shell: pwsh
+        env:
+          GITHUB_APP_ID:             ${{ secrets.GITHUB_APP_ID }}
+          GITHUB_APP_PRIVATE_KEY:    ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+          GITHUB_APP_INSTALLATION_ID: ${{ secrets.GITHUB_APP_INSTALLATION_ID }}
+          MEMORY_REPO_REF: >-
+            ${{ github.event_name == 'workflow_dispatch'
+                && inputs.memory_ref
+                || 'main' }}
+          ORCHESTRATOR_WORKSPACE:    ${{ github.workspace }}
+        run: |
+          ./.infinity/scripts/Sync-MemoryToOrchestrator.ps1
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## Memory Sync Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Trigger | \`${{ github.event_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Source ref | \`${{ env.MEMORY_REPO_REF || 'main' }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Run time | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f ".infinity/ACTIVE_MEMORY.md" ]; then
+            LINES=$(wc -l < .infinity/ACTIVE_MEMORY.md)
+            echo "**ACTIVE_MEMORY.md**: present ($LINES lines)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**ACTIVE_MEMORY.md**: ⚠️ not present after sync" >> "$GITHUB_STEP_SUMMARY"
+          fi

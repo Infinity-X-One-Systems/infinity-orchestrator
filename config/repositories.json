@@ -21,7 +21,7 @@
       "updated_at": "2026-01-11T06:51:53Z",
       "build_config": {
         "enabled": true,
-        "build_command": "echo 'No build required for orchestrator'",
+        "build_command": "echo \"No build required for orchestrator\"",
         "test_command": "shellcheck scripts/*.sh || true",
         "pre_build": [],
         "post_build": []
