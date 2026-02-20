@@ -1,0 +1,83 @@
+{
+  "version": "1.0.0",
+  "schema": "https://github.com/Infinity-X-One-Systems/infinity-orchestrator/tree/main/.infinity/connectors/endpoint-registry.md",
+  "last_updated": "2026-02-20T00:00:00Z",
+  "organization": "Infinity-X-One-Systems",
+  "endpoints": [
+    {
+      "id": "github-api",
+      "name": "GitHub REST API",
+      "description": "Primary GitHub REST API used for repository management, workflow dispatch, and GitHub App authentication.",
+      "base_url": "https://api.github.com",
+      "auth_method": "github_app",
+      "auth_fallback": "github_token",
+      "scopes_required": ["contents:read", "contents:write", "actions:write"],
+      "rate_limit": {
+        "requests_per_hour": 5000,
+        "authenticated": true
+      },
+      "health_check": {
+        "url": "https://api.github.com/zen",
+        "method": "GET",
+        "expected_status": 200
+      },
+      "governed": true,
+      "tags": ["core", "github", "api"]
+    },
+    {
+      "id": "github-app-auth",
+      "name": "GitHub App Authentication",
+      "description": "Short-lived installation access tokens minted from the Infinity Orchestrator GitHub App (app/infinity-orchestrator). Preferred over long-lived PATs.",
+      "base_url": "https://api.github.com/app",
+      "auth_method": "github_app_jwt",
+      "token_ttl_seconds": 600,
+      "endpoints": {
+        "installations": "/app/installations",
+        "access_tokens": "/app/installations/{installation_id}/access_tokens"
+      },
+      "governed": true,
+      "tags": ["auth", "github-app", "jwt"]
+    },
+    {
+      "id": "github-actions-api",
+      "name": "GitHub Actions API",
+      "description": "API for triggering and monitoring GitHub Actions workflow runs across the Infinity-X-One-Systems organization.",
+      "base_url": "https://api.github.com",
+      "auth_method": "github_app",
+      "auth_fallback": "github_token",
+      "scopes_required": ["actions:read", "actions:write"],
+      "endpoints": {
+        "workflow_dispatch": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+        "list_runs": "/repos/{owner}/{repo}/actions/runs",
+        "list_workflows": "/repos/{owner}/{repo}/actions/workflows"
+      },
+      "governed": true,
+      "tags": ["ci", "github", "actions"]
+    },
+    {
+      "id": "orchestrator-memory",
+      "name": "Orchestrator Memory (ACTIVE_MEMORY.md)",
+      "description": "Canonical agent memory file served via the GitHub Contents API from this repository. Consumed by all Infinity agents during bootstrap.",
+      "base_url": "https://api.github.com",
+      "auth_method": "github_app",
+      "auth_fallback": "github_token",
+      "content_path": ".infinity/ACTIVE_MEMORY.md",
+      "resolved_url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/contents/.infinity/ACTIVE_MEMORY.md",
+      "accept_header": "application/vnd.github.raw+json",
+      "governed": true,
+      "tags": ["memory", "agent", "bootstrap"]
+    },
+    {
+      "id": "org-repo-index",
+      "name": "Organization Repository Index",
+      "description": "Live index of all repositories in Infinity-X-One-Systems, generated on a schedule and on demand. Stored at .infinity/ORG_REPO_INDEX.json in this repository.",
+      "base_url": "https://api.github.com",
+      "auth_method": "github_token",
+      "content_path": ".infinity/ORG_REPO_INDEX.json",
+      "resolved_url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/contents/.infinity/ORG_REPO_INDEX.json",
+      "refresh_workflow": ".github/workflows/org-repo-index.yml",
+      "governed": true,
+      "tags": ["index", "discovery", "org"]
+    }
+  ]
+}

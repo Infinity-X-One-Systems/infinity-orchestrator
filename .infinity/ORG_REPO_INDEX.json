@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "schema_note": "Seed file. Auto-generated and overwritten by .github/workflows/org-repo-index.yml on first run. Do not edit manually. The last_updated timestamp and repositories array are populated by the workflow.",
+  "last_updated": "1970-01-01T00:00:00Z",
+  "organization": "Infinity-X-One-Systems",
+  "repositories": [],
+  "statistics": {
+    "total_repositories": 0,
+    "active_repositories": 0,
+    "archived_repositories": 0,
+    "languages": {}
+  }
+}
