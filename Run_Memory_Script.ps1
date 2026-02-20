@@ -1,0 +1,237 @@
+# Run_Memory_Script.ps1
+# Rehydration Script for Windows Operators
+# Generates .infinity/ACTIVE_MEMORY.md with the current state of the repository.
+# Run this script whenever ACTIVE_MEMORY.md is missing or stale.
+#
+# Usage:
+#   .\Run_Memory_Script.ps1
+#   .\Run_Memory_Script.ps1 -RepoRoot "C:\path\to\infinity-orchestrator"
+
+param(
+    [string]$RepoRoot = $PSScriptRoot
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$OutputFile = Join-Path $RepoRoot ".infinity\ACTIVE_MEMORY.md"
+$Timestamp  = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
+
+function Write-Status {
+    param([string]$Message)
+    Write-Host "[REHYDRATE] $Message" -ForegroundColor Green
+}
+
+function Write-WarningStatus {
+    param([string]$Message)
+    Write-Host "[REHYDRATE] $Message" -ForegroundColor Yellow
+}
+
+# Ensure output directory exists
+$InfinityDir = Join-Path $RepoRoot ".infinity"
+if (-not (Test-Path $InfinityDir)) {
+    New-Item -ItemType Directory -Path $InfinityDir | Out-Null
+    Write-Status "Created directory: .infinity"
+}
+
+Write-Status "Generating ACTIVE_MEMORY.md at: $OutputFile"
+
+# --- Tool Versions ---
+function Get-ToolVersion {
+    param([string]$Cmd, [string]$Args = "--version")
+    try {
+        $result = & $Cmd $Args 2>&1 | Select-Object -First 1
+        return $result.ToString().Trim()
+    } catch {
+        return "not found"
+    }
+}
+
+$GitVersion = Get-ToolVersion "git" "--version"
+$JqVersion  = Get-ToolVersion "jq" "--version"
+$GhVersion  = Get-ToolVersion "gh" "--version"
+$PSVersion  = "PowerShell $($PSVersionTable.PSVersion)"
+
+# --- Git Context ---
+function Invoke-Git {
+    param([string]$Arguments)
+    try {
+        $result = git -C $RepoRoot $Arguments.Split(" ") 2>&1 | Select-Object -First 1
+        return $result.ToString().Trim()
+    } catch {
+        return "unknown"
+    }
+}
+
+$GitBranch = Invoke-Git "rev-parse --abbrev-ref HEAD"
+$GitSha    = Invoke-Git "rev-parse --short HEAD"
+$GitRemote = Invoke-Git "remote get-url origin"
+
+# --- Orchestrator Config Summary ---
+$OrchestratorConfig = Join-Path $RepoRoot "config\orchestrator.yml"
+$OrgName            = "Infinity-X-One-Systems"
+$DiscoveryInterval  = "unknown"
+$MaxParallel        = "unknown"
+
+if (Test-Path $OrchestratorConfig) {
+    $ConfigContent = Get-Content $OrchestratorConfig -Raw
+    if ($ConfigContent -match 'organization:\s+"?\$\{[^}]+:-([^}"]+)\}"?') {
+        $OrgName = $Matches[1]
+    } elseif ($ConfigContent -match 'organization:\s+"?([^"\n#]+)"?') {
+        $OrgName = $Matches[1].Trim()
+    }
+    if ($ConfigContent -match 'scan_interval:\s+"([^"]+)"') {
+        $DiscoveryInterval = $Matches[1]
+    }
+    if ($ConfigContent -match 'max_parallel:\s+(\d+)') {
+        $MaxParallel = $Matches[1]
+    }
+}
+
+# --- Repository Manifest Stats ---
+$RepoCount   = "unknown"
+$ActiveCount = "unknown"
+$ManifestPath = Join-Path $RepoRoot "config\repositories.json"
+
+if ((Test-Path $ManifestPath) -and (Get-Command jq -ErrorAction SilentlyContinue)) {
+    try {
+        $RepoCount   = (jq '.statistics.total_repositories // "unknown"' $ManifestPath).Trim('"')
+        $ActiveCount = (jq '.statistics.active_repositories // "unknown"' $ManifestPath).Trim('"')
+    } catch {
+        Write-WarningStatus "Could not read repositories.json with jq."
+    }
+} elseif (Test-Path $ManifestPath) {
+    try {
+        $manifest    = Get-Content $ManifestPath -Raw | ConvertFrom-Json
+        $RepoCount   = $manifest.statistics.total_repositories
+        $ActiveCount = $manifest.statistics.active_repositories
+    } catch {
+        Write-WarningStatus "Could not parse repositories.json."
+    }
+}
+
+# --- File Tree (max depth 3) ---
+function Get-FileTree {
+    param([string]$Root, [int]$MaxDepth = 3)
+    $lines = @()
+    $items = Get-ChildItem -Path $Root -Recurse -Depth $MaxDepth -Force `
+        | Where-Object { $_.FullName -notmatch '\\.git(\\|$)' } `
+        | Sort-Object FullName
+    foreach ($item in $items) {
+        $relative = $item.FullName.Substring($Root.Length).TrimStart('\', '/')
+        $depth    = ($relative -split '[\\/]').Count - 1
+        $indent   = "  " * $depth
+        $lines   += "${indent}└─ $($item.Name)"
+    }
+    return $lines -join "`n"
+}
+
+$FileTree = Get-FileTree -Root $RepoRoot
+
+# --- Workflow List ---
+$WorkflowDir = Join-Path $RepoRoot ".github\workflows"
+$WorkflowList = if (Test-Path $WorkflowDir) {
+    Get-ChildItem -Path $WorkflowDir -Recurse -Filter "*.yml" `
+    | Sort-Object Name `
+    | ForEach-Object { "  - $($_.Name)" } `
+    | Out-String
+} else { "  (none found)" }
+
+# --- Script List ---
+$ScriptDir = Join-Path $RepoRoot "scripts"
+$ScriptList = if (Test-Path $ScriptDir) {
+    Get-ChildItem -Path $ScriptDir -File `
+    | Sort-Object Name `
+    | ForEach-Object { "  - $($_.Name)" } `
+    | Out-String
+} else { "  (none found)" }
+
+# --- Write ACTIVE_MEMORY.md ---
+$Content = @"
+# ACTIVE_MEMORY.md — Infinity Orchestrator State Snapshot
+> Auto-generated by ``Run_Memory_Script.ps1``. **Do not edit manually.**
+> Last updated: $Timestamp
+
+---
+
+## 🗂️ Repository Identity
+
+| Field | Value |
+|-------|-------|
+| Repository | infinity-orchestrator |
+| Organization | Infinity-X-One-Systems |
+| Remote | $GitRemote |
+| Branch | $GitBranch |
+| Commit SHA | $GitSha |
+| Snapshot Time | $Timestamp |
+
+---
+
+## 🔧 Tool Versions
+
+| Tool | Version |
+|------|---------|
+| PowerShell | $PSVersion |
+| Git | $GitVersion |
+| jq | $JqVersion |
+| GitHub CLI | $GhVersion |
+
+---
+
+## ⚙️ Active Configuration Summary
+
+| Setting | Value |
+|---------|-------|
+| Organization | $OrgName |
+| Discovery Interval | $DiscoveryInterval |
+| Max Parallel Builds | $MaxParallel |
+| Total Repositories (manifest) | $RepoCount |
+| Active Repositories (manifest) | $ActiveCount |
+
+---
+
+## 📁 Repository File Tree
+
+``````
+infinity-orchestrator/
+$FileTree
+``````
+
+---
+
+## 🔄 GitHub Actions Workflows
+
+$WorkflowList
+
+---
+
+## 🛠️ Scripts
+
+$ScriptList
+
+---
+
+## 📋 Core Configuration Files
+
+- ``config/orchestrator.yml`` — System-wide orchestrator settings
+- ``config/repositories.json`` — Auto-generated repository manifest (updated every 6 hours)
+
+---
+
+## 🧠 Memory Protocol Notes
+
+This file is the **single source of truth** for the Overseer-Prime agent's workspace context.
+
+- If this file is **missing or empty**, run ``scripts/rehydrate.sh`` (Bash) or ``Run_Memory_Script.ps1`` (PowerShell).
+- If workflows fail, check ``.github/workflows/rehydrate.yml`` for the auto-regeneration job.
+- Configuration changes in ``config/orchestrator.yml`` are reflected here after the next rehydration.
+
+---
+
+*Generated by the Infinity Orchestrator rehydration system.*
+"@
+
+Set-Content -Path $OutputFile -Value $Content -Encoding UTF8
+
+Write-Status "ACTIVE_MEMORY.md generated successfully."
+Write-Status "Snapshot timestamp: $Timestamp"
