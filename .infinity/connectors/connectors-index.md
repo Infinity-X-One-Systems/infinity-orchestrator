@@ -45,8 +45,33 @@ All connectors are registered in `endpoint-registry.json` and governed by
 - **Purpose**: Copilot Chat completions; `@infinity-orchestrator` Copilot
   Extension for GitHub.com and Copilot Mobile.
 - **Auth**: GitHub App token.
-- **Mobile access**: Trigger orchestrator workflows from Copilot Chat on iOS/Android.
-- **Docs**: `copilot-connector.json`
+- **Mobile access**: Trigger orchestrator workflows from Copilot Chat on iOS/Android via `@infinity-orchestrator`.
+- **Docs**: `copilot-connector.json`, `.infinity/runbooks/copilot-mobile.md`
+
+#### Mobile-Specific Endpoints
+
+| Endpoint ID | Surface | `Copilot-Integration-Id` header |
+|-------------|---------|--------------------------------|
+| `copilot-chat` | VS Code | `vscode-chat` |
+| `copilot-mobile-chat` | GitHub Mobile app (iOS/Android) & GitHub.com | `github.com` |
+| `copilot-models` | All | _(none needed)_ |
+| `copilot-extension-event` | **Inbound webhook** — receives events when any user invokes `@infinity-orchestrator` | `ecdsa-es256` — verify against GitHub public keys |
+| `copilot-seats` | Org management | GitHub App token |
+
+#### Invoking from GitHub Mobile App
+
+1. Open the **GitHub Mobile** app (iOS or Android).
+2. Tap **Copilot** (chat icon) in the bottom navigation bar.
+3. Type `@infinity-orchestrator` followed by an intent:
+   - `@infinity-orchestrator run genesis-loop` — trigger autonomous invention
+   - `@infinity-orchestrator health` — check system health
+   - `@infinity-orchestrator repos` — list org repo index
+   - `@infinity-orchestrator memory` — read current ACTIVE_MEMORY.md snapshot
+   - `@infinity-orchestrator issue <title>` — create a GitHub issue
+4. Copilot routes the message to the extension webhook at `copilot-extension-event`.
+5. The orchestrator processes the request and streams a response back.
+
+> 📖 Full setup guide: `.infinity/runbooks/copilot-mobile.md`
 
 ### Cloudflare
 - **Purpose**: DNS management, Workers deployment, Pages CI/CD, R2 storage,
@@ -74,6 +99,7 @@ All connectors are registered in `endpoint-registry.json` and governed by
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare connector | ✅ for CF ops |
 | `CLOUDFLARE_ZONE_ID` | Cloudflare DNS operations | ⚙️ per-zone ops |
 | `VSCODE_TUNNEL_TOKEN` | VS Code tunnel | ⚙️ for tunnel |
+| _(no secret needed)_ | Copilot Extension uses ECDSA P-256; verify against `https://api.github.com/meta/public_keys/copilot_api` | ✅ built-in |
 
 ---
 

@@ -1,63 +1,144 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "id": "github-copilot",
   "name": "GitHub Copilot",
-  "description": "Connector for the GitHub Copilot API and Copilot Mobile. Enables the orchestrator to invoke Copilot Chat completions, access Copilot Extensions, and integrate with Copilot on mobile devices for on-the-go orchestrator control.",
+  "description": "Connector for the GitHub Copilot API, Copilot Extensions, and Copilot Mobile (iOS/Android). Enables the orchestrator to invoke Copilot Chat completions from any surface (VS Code, GitHub.com, mobile app) and to register as an @infinity-orchestrator Copilot Extension that mobile users can invoke on-the-go.",
   "governed": true,
   "base_url": "https://api.githubcopilot.com",
+  "management_base_url": "https://api.github.com",
   "auth_method": "github_app",
   "auth_fallback": "github_token",
   "auth_secret": "GITHUB_TOKEN",
+
   "endpoints": {
-    "chat_completions": {
+    "chat_completions_vscode": {
+      "id": "copilot-chat-vscode",
       "path": "/chat/completions",
       "method": "POST",
-      "description": "Copilot Chat completions — same interface as OpenAI chat completions",
+      "description": "Copilot Chat completions from VS Code surface. Uses the OpenAI-compatible chat completions schema.",
       "headers": {
-        "_comment": "These header values are examples; update to match your actual VS Code / GitHub Copilot version.",
         "Copilot-Integration-Id": "vscode-chat",
         "Editor-Version": "vscode/1.95.0",
         "Editor-Plugin-Version": "copilot-chat/0.21.0"
-      }
+      },
+      "surface": "vscode"
+    },
+    "chat_completions_mobile": {
+      "id": "copilot-mobile-chat",
+      "path": "/chat/completions",
+      "method": "POST",
+      "description": "Copilot Chat completions from the GitHub Mobile app (iOS/Android). The Copilot-Integration-Id must be 'github.com' for requests originating from or emulating the mobile surface.",
+      "headers": {
+        "Copilot-Integration-Id": "github.com",
+        "Editor-Version": "GitHub/1.0",
+        "Editor-Plugin-Version": "copilot-chat/mobile"
+      },
+      "surface": "mobile",
+      "platforms": ["ios", "android"]
+    },
+    "chat_completions_githubcom": {
+      "id": "copilot-chat-githubcom",
+      "path": "/chat/completions",
+      "method": "POST",
+      "description": "Copilot Chat completions from GitHub.com (browser). Used when Copilot Extensions are invoked on github.com.",
+      "headers": {
+        "Copilot-Integration-Id": "github.com"
+      },
+      "surface": "github.com"
     },
     "models": {
+      "id": "copilot-models",
       "path": "/models",
       "method": "GET",
-      "description": "List Copilot-available models"
+      "description": "List models available to this Copilot installation.",
+      "surface": "all"
+    },
+    "extension_webhook": {
+      "id": "copilot-extension-event",
+      "description": "Inbound webhook endpoint — GitHub sends Copilot Extension events (user messages) to this URL when a user invokes @infinity-orchestrator in Copilot Chat on any surface, including the GitHub Mobile app.",
+      "note": "Deploy a receiver at the URL below (e.g., via a Cloudflare Worker or GitHub Actions workflow_dispatch). Payload is the same schema as the Copilot Extensions API spec.",
+      "inbound_url_placeholder": "https://orchestrator.infinity-x-one.systems/copilot/events",
+      "method": "POST",
+      "verification": "ECDSA P-256 (ES256) signature. Verify X-GitHub-Public-Key-Signature against GitHub public keys from https://api.github.com/meta/public_keys/copilot_api. No shared secret required.",
+      "surface": "all"
+    },
+    "copilot_seats": {
+      "id": "copilot-seats",
+      "path": "/orgs/{org}/copilot/billing/seats",
+      "base_url": "https://api.github.com",
+      "method": "GET",
+      "description": "List Copilot seat assignments for the organisation. Used by the orchestrator to verify which members have mobile access.",
+      "auth": "github-app-token",
+      "permission_required": "copilot_user_management:read",
+      "surface": "management"
     }
   },
+
   "copilot_extensions": {
-    "description": "Copilot Extensions allow the orchestrator to appear as a @infinity agent in Copilot Chat (GitHub.com, VS Code, mobile)",
+    "description": "Copilot Extensions register the orchestrator as the @infinity-orchestrator agent, reachable from Copilot Chat on GitHub.com, VS Code, and the GitHub Mobile app.",
     "agent_slug": "@infinity-orchestrator",
     "extension_type": "copilot_extension",
+    "github_app_slug": "infinity-orchestrator",
+    "manifest_url": "https://github.com/Infinity-X-One-Systems/infinity-orchestrator",
+    "setup_guide": ".infinity/runbooks/copilot-mobile.md",
     "capabilities": [
       "chat",
-      "code_completion",
       "workflow_trigger",
-      "repository_context"
+      "repository_context",
+      "memory_query",
+      "health_check",
+      "issue_create",
+      "pr_create"
     ],
-    "manifest_url": "https://github.com/Infinity-X-One-Systems/infinity-orchestrator"
+    "intents": {
+      "run_workflow":    "@infinity-orchestrator run <workflow-name>",
+      "check_health":    "@infinity-orchestrator health",
+      "memory_query":    "@infinity-orchestrator memory",
+      "org_repo_index":  "@infinity-orchestrator repos",
+      "create_issue":    "@infinity-orchestrator issue <title>",
+      "run_invention":   "@infinity-orchestrator invent <topic>"
+    }
   },
+
   "mobile_access": {
-    "description": "GitHub Copilot Mobile (iOS and Android) can access the orchestrator via @infinity-orchestrator mentions in Copilot Chat",
-    "platforms": ["ios", "android"],
+    "description": "GitHub Copilot Mobile (iOS and Android) connects to the orchestrator via the @infinity-orchestrator Copilot Extension. No separate app or token is required — the user's GitHub session authenticates the request.",
+    "platforms": {
+      "ios": {
+        "app": "GitHub Mobile",
+        "min_version": "1.0",
+        "copilot_chat_available": true,
+        "how_to_invoke": "Open Copilot Chat tab → type @infinity-orchestrator <intent>"
+      },
+      "android": {
+        "app": "GitHub Mobile",
+        "min_version": "1.0",
+        "copilot_chat_available": true,
+        "how_to_invoke": "Open Copilot Chat tab → type @infinity-orchestrator <intent>"
+      }
+    },
     "capabilities": [
       "trigger autonomous invention cycle",
-      "query ACTIVE_MEMORY.md",
+      "query ACTIVE_MEMORY.md snapshot",
       "check workflow status",
       "view health dashboard",
-      "create issues and PRs"
+      "create issues and PRs",
+      "list org repositories (ORG_REPO_INDEX)",
+      "read governance policies"
     ],
-    "auth": "GitHub App token via mobile Copilot session"
+    "auth": "GitHub App token via mobile Copilot session (short-lived, auto-refreshed)",
+    "webhook_required": true,
+    "webhook_note": "The orchestrator must expose the extension_webhook endpoint above and verify ECDSA P-256 (ES256) signatures using GitHub published public keys. No shared secret needed. See .infinity/runbooks/copilot-mobile.md."
   },
+
   "rate_limits": {
     "requests_per_minute": 100,
-    "tokens_per_minute": 200000
+    "tokens_per_minute": 200000,
+    "note": "Limits apply per-user on the Copilot Business/Enterprise plan. Check /models response headers for current limits."
   },
   "health_check": {
     "url": "https://api.githubcopilot.com/models",
     "method": "GET",
     "expected_status": 200
   },
-  "tags": ["ai", "copilot", "github-copilot", "mobile", "chat", "extensions"]
+  "tags": ["ai", "copilot", "github-copilot", "mobile", "ios", "android", "chat", "extensions", "webhook"]
 }
