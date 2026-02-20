@@ -1,86 +1,133 @@
-# Authentication Matrix
+# Auth Matrix — Infinity Orchestrator Endpoints
 
-Maps every governed endpoint to its required authentication method and the
-secrets or credentials needed to satisfy it.
-
----
-
-## Principles
-
-1. **GitHub App first.**  Prefer short-lived installation access tokens over
-   any other credential.  GitHub App JWTs expire in 10 minutes; installation
-   tokens expire in 1 hour.
-2. **`GITHUB_TOKEN` as safe fallback.**  The Actions built-in token is
-   acceptable for same-repository operations where write access to a single
-   repo is sufficient.
-3. **No long-lived PATs in workflows.**  Personal Access Tokens must not be
-   stored as repository secrets or used in automated workflows.  If a cross-
-   repository PAT is unavoidable, it must be scoped to the minimum permissions
-   and rotated at least every 90 days.
-4. **Secrets are masked on first use.**  Every script that handles a token
-   must call `::add-mask::` (Bash) or `Invoke-MaskSecret` (PowerShell) before
-   any operation that may echo the token to stdout/stderr.
+> **Org:** Infinity-X-One-Systems  
+> Governs authentication requirements for every registered endpoint category.  
+> Cross-reference with [`endpoint-registry.md`](./endpoint-registry.md) for the full endpoint list.
 
 ---
 
-## Auth Method Definitions
+## Auth Scheme Definitions
 
-| Method ID | Description | TTL | Secrets Required |
-|-----------|-------------|-----|-----------------|
-| `github_app_jwt` | RS256-signed JWT minted from the GitHub App private key. Used only to authenticate the App itself (e.g., to list installations or mint an installation token). | 10 min | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` |
-| `github_app` | Short-lived installation access token minted by presenting a `github_app_jwt` to `/app/installations/{id}/access_tokens`. Preferred for all repo operations. | ≤ 60 min | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` (+ optionally `GITHUB_APP_INSTALLATION_ID`) |
-| `github_token` | Actions built-in `GITHUB_TOKEN`.  Auto-rotated per job; read/write scope is governed by the workflow's `permissions` block. | Job lifetime | None (automatically injected by Actions) |
-
----
-
-## Endpoint → Auth Requirements
-
-| Endpoint ID | Primary Method | Fallback Method | Minimum Permissions |
-|-------------|---------------|-----------------|---------------------|
-| `github-api` | `github_app` | `github_token` | `contents:read` (read); `contents:write` (write) |
-| `github-app-auth` | `github_app_jwt` | — | `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY` |
-| `github-actions-api` | `github_app` | `github_token` | `actions:read` + `actions:write` |
-| `orchestrator-memory` | `github_app` | `github_token` | `contents:read` on `infinity-orchestrator` |
-| `org-repo-index` | `github_token` | `github_app` | `contents:write` on `infinity-orchestrator`; `metadata:read` on org |
+| Scheme ID | Type | Token Lifetime | Secrets Required |
+|-----------|------|---------------|-----------------|
+| `none` | No auth | — | — |
+| `bearer` | HTTP Bearer token | Varies by issuer | `API_TOKEN` or equivalent |
+| `github-app-token` | GitHub App installation access token (RS256 JWT → IAT) | 1 hour max | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID` (optional) |
+| `cloudflare-access` | Cloudflare Access service token | Configurable (default 365 d) | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` |
+| `oauth2-google` | Google OAuth 2.0 service account | 1 hour | `GOOGLE_SERVICE_ACCOUNT_KEY` (JSON) or `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` |
+| `tls-cert` | Mutual TLS client certificate | Certificate validity period | `DOCKER_CERT_PATH`, `DOCKER_TLS_VERIFY=1` |
+| `unix-socket` | Unix domain socket (filesystem permission) | N/A | Docker group membership or `root` |
 
 ---
 
-## GitHub App Configuration
+## Per-Category Auth Requirements
 
-The Infinity Orchestrator GitHub App (`app/infinity-orchestrator`) must be
-installed on the `Infinity-X-One-Systems` organisation with at minimum:
+### Local
 
-| Permission | Level | Rationale |
-|-----------|-------|-----------|
-| Repository → Contents | Read & Write | Commit and push generated artefacts (e.g., `ORG_REPO_INDEX.json`, `ACTIVE_MEMORY.md`). |
-| Repository → Actions | Read & Write | Dispatch workflow runs and read run results. |
-| Organization → Members | Read | Used by the org-repo-index workflow to enumerate repositories. |
+| Endpoint | Scheme | Secret(s) | Masking Required |
+|----------|--------|-----------|-----------------|
+| `local-health` | `none` | — | No |
+| `local-api` | `bearer` | `LOCAL_API_TOKEN` | Yes — mask in logs |
+
+### Cloud
+
+| Endpoint | Scheme | Secret(s) | Masking Required |
+|----------|--------|-----------|-----------------|
+| `cloud-api-gateway` | `bearer` | `CLOUD_API_TOKEN` | Yes |
+
+### Cloudflare
+
+| Endpoint | Scheme | Secret(s) | Masking Required |
+|----------|--------|-----------|-----------------|
+| `cf-tunnel-orchestrator` | `cloudflare-access` | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | Yes — both values |
+| `cf-gateway` | `cloudflare-access` | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | Yes |
+
+> **Note:** Cloudflare Access tokens must **never** appear in query strings; use headers only.
+
+### Docker
+
+| Endpoint | Scheme | Secret(s) | Masking Required |
+|----------|--------|-----------|-----------------|
+| `docker-socket` | `unix-socket` | _(filesystem permissions)_ | N/A |
+| `docker-tcp` | `tls-cert` | `DOCKER_CERT_PATH` (directory of certs) | No — certs are files, not inline secrets |
+
+> **Security note:** Docker socket mounts are documented risks. Prefer read-only socket mounts (`/var/run/docker.sock:ro`) and document alternatives. See `SECURITY.md`.
+
+### GitHub Actions / Dispatch
+
+| Endpoint | Scheme | Secret(s) | Masking Required |
+|----------|--------|-----------|-----------------|
+| `gh-actions-dispatch` | `github-app-token` | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | Yes — mask JWT + IAT before any log output |
+| `gh-repo-dispatch` | `github-app-token` | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | Yes |
+| `gh-actions-list-runs` | `github-app-token` | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | Yes |
+
+> **No long-lived PATs.** Always use GitHub App installation access tokens. Tokens expire in ≤ 1 hour and are minted per workflow run. The JWT and IAT must be masked via `::add-mask::` immediately after creation.
+
+### MCP
+
+| Endpoint | Scheme | Secret(s) | Masking Required |
+|----------|--------|-----------|-----------------|
+| `mcp-server-local` | `bearer` | `MCP_SERVER_TOKEN` | Yes |
+| `mcp-server-cloud` | `bearer` | `MCP_SERVER_TOKEN` | Yes |
+
+### REST Gateway
+
+| Endpoint | Scheme | Secret(s) | Masking Required |
+|----------|--------|-----------|-----------------|
+| `rest-gateway-v1` | `bearer` | `GATEWAY_API_TOKEN` | Yes |
+
+### Ingestion Pipeline
+
+| Endpoint | Scheme | Secret(s) | Masking Required |
+|----------|--------|-----------|-----------------|
+| `ingestion-event-stream` | `bearer` | `INGEST_TOKEN` | Yes |
+| `ingestion-batch` | `bearer` | `INGEST_TOKEN` | Yes |
+
+### Google Workspace
+
+| Endpoint | Scheme | Secret(s) | Masking Required |
+|----------|--------|-----------|-----------------|
+| `gws-gmail` | `oauth2-google` | `GOOGLE_SERVICE_ACCOUNT_KEY` | Yes — mask full JSON key |
+| `gws-drive` | `oauth2-google` | `GOOGLE_SERVICE_ACCOUNT_KEY` | Yes |
+| `gws-calendar` | `oauth2-google` | `GOOGLE_SERVICE_ACCOUNT_KEY` | Yes |
 
 ---
 
-## Required Repository Secrets
+## Token Masking Protocol
 
-Configure the following in
-**Settings → Secrets and variables → Actions** for the
-`infinity-orchestrator` repository.
+All scripts and workflows **must** call the masking primitive immediately after obtaining any token:
 
-| Secret | Required | Description |
-|--------|----------|-------------|
-| `GITHUB_APP_ID` | ✅ | Numeric ID of the GitHub App. |
-| `GITHUB_APP_PRIVATE_KEY` | ✅ | PEM-encoded RSA private key for the App. |
-| `GITHUB_APP_INSTALLATION_ID` | ⚙️ Optional | Pre-known installation ID; skips discovery API call. |
+**PowerShell (GitHub Actions runner):**
+```powershell
+# Use Invoke-MaskSecret wrapper — see .infinity/scripts/Sync-MemoryToOrchestrator.ps1
+Invoke-MaskSecret -Secret $accessToken
+```
 
-> `GITHUB_TOKEN` is injected automatically by GitHub Actions and does not
-> need to be set as a secret.
+**Bash (GitHub Actions runner):**
+```bash
+echo "::add-mask::${TOKEN}"
+```
+
+Fields that **must never appear unmasked** in logs:
+- `Authorization` header value
+- `CF-Access-Client-Secret`
+- Any value containing `token`, `key`, `secret`, or `password` in its name
 
 ---
 
-## Related Files
+## Rotation & Expiry Policy
 
-| File | Purpose |
-|------|---------|
-| [`endpoint-registry.json`](endpoint-registry.json) | Machine-readable endpoint registry |
-| [`endpoint-registry.md`](endpoint-registry.md) | Registry documentation |
-| [`../runbooks/agent-bootstrap.md`](../runbooks/agent-bootstrap.md) | Agent bootstrap runbook |
-| [`../scripts/Invoke-InfinityAgentBootstrap.ps1`](../scripts/Invoke-InfinityAgentBootstrap.ps1) | Bootstrap script |
-| [`../scripts/Sync-MemoryToOrchestrator.ps1`](../scripts/Sync-MemoryToOrchestrator.ps1) | Memory sync script |
+| Scheme | Recommended Rotation | Automated? |
+|--------|---------------------|------------|
+| `github-app-token` | Per workflow run (auto-expires ≤ 1 h) | ✅ Yes — minted on demand |
+| `bearer` (static) | Every 90 days | ❌ Manual — set a calendar reminder |
+| `cloudflare-access` | Every 90 days | ❌ Manual |
+| `oauth2-google` (service account) | Every 90 days or on personnel change | ❌ Manual |
+| `tls-cert` | Before certificate expiry (monitor `notAfter`) | ❌ Manual |
+
+---
+
+## Governance
+
+Violations of this auth matrix are a **TAP Protocol** enforcement point.  
+See `.infinity/policies/tap-protocol.md` for the full governance framework and `.infinity/runbooks/governance-enforcement.md` for decision logging procedures.

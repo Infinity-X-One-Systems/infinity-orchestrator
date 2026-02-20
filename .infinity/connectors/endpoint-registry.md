@@ -1,83 +1,127 @@
-# Endpoint Registry
+# Endpoint Registry — Infinity Orchestrator
 
-Defines and governs all external and internal API endpoints used by the
-Infinity Orchestrator and the agents it manages.
+> **Version:** 1.0.0  
+> **Org:** Infinity-X-One-Systems  
+> **Source of truth:** `.infinity/connectors/endpoint-registry.json`  
+> Auto-maintained alongside infrastructure changes.
 
 ---
 
 ## Overview
 
-The endpoint registry (`endpoint-registry.json`) is the single source of
-truth for every API surface the Infinity system touches.  All new integrations
-**must** be registered here before use.  Unregistered endpoints are considered
-ungoverned and may not be called from workflows or agent scripts without a
-governance review.
+This document provides a human-readable catalogue of all tool endpoints available to Infinity Orchestrator agents. Each entry maps to the corresponding machine-readable record in `endpoint-registry.json`. For auth details see [`auth-matrix.md`](./auth-matrix.md).
+
+Status legend: ✅ active · 🔵 planned · ⚙️ conditional
 
 ---
 
-## Registry Format
+## 🖥️ Local
 
-Each entry in `endpoint-registry.json` follows this schema:
+Endpoints that resolve on the local runner or development machine.
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `id` | ✅ | Machine-readable unique identifier (kebab-case). |
-| `name` | ✅ | Human-readable display name. |
-| `description` | ✅ | Purpose and usage context. |
-| `base_url` | ✅ | Base URL for the endpoint (no trailing slash). |
-| `auth_method` | ✅ | Primary authentication method (see [Auth Matrix](auth-matrix.md)). |
-| `auth_fallback` | ⚙️ | Fallback method when primary is unavailable. |
-| `governed` | ✅ | Must be `true` for all production endpoints. |
-| `tags` | ✅ | Categorisation tags for discovery and filtering. |
-| `health_check` | ⚙️ | Optional liveness probe configuration. |
-| `rate_limit` | ⚙️ | Known rate-limit parameters for throttle management. |
+| ID | Name | URL | Method | Auth | Status |
+|----|------|-----|--------|------|--------|
+| `local-health` | Local Health Check | `http://localhost:8080/health` | GET | none | ✅ |
+| `local-api` | Local Orchestrator API | `http://localhost:8080/api/v1` | GET | bearer | ✅ |
 
 ---
 
-## Registered Endpoints
+## ☁️ Cloud
 
-| ID | Name | Auth Method | Governed |
-|----|------|-------------|----------|
-| `github-api` | GitHub REST API | `github_app` / `github_token` | ✅ |
-| `github-app-auth` | GitHub App Authentication | `github_app_jwt` | ✅ |
-| `github-actions-api` | GitHub Actions API | `github_app` / `github_token` | ✅ |
-| `orchestrator-memory` | Orchestrator Memory (`ACTIVE_MEMORY.md`) | `github_app` / `github_token` | ✅ |
-| `org-repo-index` | Organization Repository Index | `github_token` | ✅ |
+Cloud-hosted endpoints for the Infinity platform.
+
+| ID | Name | URL | Method | Auth | Status |
+|----|------|-----|--------|------|--------|
+| `cloud-api-gateway` | Cloud API Gateway | `https://api.infinity-x-one.com/v1` | GET | bearer | 🔵 |
 
 ---
 
-## Adding a New Endpoint
+## 🌐 Cloudflare (Tunnel / Gateway / Access)
 
-1. Open a PR that adds a new JSON object to the `endpoints` array in
-   `endpoint-registry.json`.
-2. Set `governed: true`.
-3. Document the required `auth_method` in [auth-matrix.md](auth-matrix.md).
-4. Update this file's **Registered Endpoints** table.
-5. Get approval from a codeowner before merging.
+Cloudflare-protected ingress. All requests **must** carry Cloudflare Access service-token headers.
 
----
-
-## Governance Policy
-
-* **No long-lived PATs.**  All machine-to-machine calls must use GitHub App
-  installation tokens (TTL ≤ 10 minutes) or the Actions built-in
-  `GITHUB_TOKEN`.
-* **Tokens are never stored in environment variables beyond the step that
-  mints them.**  They are masked with `::add-mask::` immediately after
-  creation.
-* **Tokens are never passed as command-line arguments.**  They are written
-  to the local git credential helper (`http.extraheader`) scoped to a single
-  `try/finally` block and removed immediately afterwards.
-* **Rate limits are respected.**  Scripts should honour GitHub API rate limits
-  and implement exponential back-off where appropriate.
+| ID | Name | URL | Method | Auth | Status | Notes |
+|----|------|-----|--------|------|--------|-------|
+| `cf-tunnel-orchestrator` | CF Tunnel — Orchestrator | `https://orchestrator.infinity-x-one.systems` | GET | cloudflare-access | 🔵 | Requires `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET` headers |
+| `cf-gateway` | CF Gateway Proxy | `https://gateway.infinity-x-one.systems/proxy` | POST | cloudflare-access | 🔵 | — |
 
 ---
 
-## Related Files
+## 🐳 Docker
 
-| File | Purpose |
-|------|---------|
-| [`endpoint-registry.json`](endpoint-registry.json) | Machine-readable registry |
-| [`auth-matrix.md`](auth-matrix.md) | Auth method requirements per endpoint |
-| [`../runbooks/endpoint-registry.md`](../runbooks/endpoint-registry.md) | Operational runbook |
-| [`../runbooks/agent-bootstrap.md`](../runbooks/agent-bootstrap.md) | Agent bootstrap runbook |
+Docker daemon and container management.
+
+| ID | Name | URL | Method | Auth | Status | Notes |
+|----|------|-----|--------|------|--------|-------|
+| `docker-socket` | Docker Unix Socket | `unix:///var/run/docker.sock` | GET | unix-socket | ✅ | ⚠️ Security risk — use read-only mounts. See `docker-compose.singularity.yml`. |
+| `docker-tcp` | Docker TCP API | `tcp://localhost:2375` | GET | tls-cert | ⚙️ | Only enabled with `DOCKER_TLS_VERIFY=1` and certs configured |
+
+---
+
+## ⚙️ GitHub Actions / Dispatch
+
+GitHub API endpoints for workflow orchestration and dispatch.
+
+| ID | Name | URL | Method | Auth | Correlation Header | Status |
+|----|------|-----|--------|------|--------------------|--------|
+| `gh-actions-dispatch` | Workflow Dispatch | `…/actions/workflows/{id}/dispatches` | POST | github-app-token | `X-GitHub-Delivery` | ✅ |
+| `gh-repo-dispatch` | Repository Dispatch | `…/repos/{owner}/{repo}/dispatches` | POST | github-app-token | `X-GitHub-Delivery` | ✅ |
+| `gh-actions-list-runs` | List Workflow Runs | `…/repos/{owner}/{repo}/actions/runs` | GET | github-app-token | — | ✅ |
+
+> All GitHub API calls must include `X-GitHub-Api-Version: 2022-11-28`.
+
+---
+
+## 🤖 MCP (Model Context Protocol)
+
+Server endpoints for AI agent tool-calling via MCP.
+
+| ID | Name | URL | Method | Auth | Status |
+|----|------|-----|--------|------|--------|
+| `mcp-server-local` | MCP Server — Local | `http://localhost:3100/mcp` | POST | bearer | 🔵 |
+| `mcp-server-cloud` | MCP Server — Cloud | `https://mcp.infinity-x-one.systems` | POST | bearer | 🔵 |
+
+---
+
+## 🔀 REST Gateway
+
+Generic REST gateway for proxied external API calls.
+
+| ID | Name | URL Pattern | Method | Auth | Audit Header | Status |
+|----|------|-------------|--------|------|--------------|--------|
+| `rest-gateway-v1` | REST Gateway v1 | `https://gateway.infinity-x-one.systems/rest/v1/{path}` | ANY | bearer | `X-Infinity-Correlation-ID` | 🔵 |
+
+---
+
+## 📥 Ingestion Pipeline
+
+Data ingestion endpoints for streaming and batch workloads.
+
+| ID | Name | URL | Method | Auth | Audit Header | Status |
+|----|------|-----|--------|------|--------------|--------|
+| `ingestion-event-stream` | Event Stream Ingest | `https://ingest.infinity-x-one.systems/events` | POST | bearer | `X-Infinity-Correlation-ID` | 🔵 |
+| `ingestion-batch` | Batch Ingest | `https://ingest.infinity-x-one.systems/batch` | POST | bearer | — | 🔵 |
+
+---
+
+## 🗂️ Google Workspace Connector (Planned)
+
+Google Workspace integration endpoints.
+
+| ID | Name | URL | Method | Auth | Status |
+|----|------|-----|--------|------|--------|
+| `gws-gmail` | Gmail | `https://gmail.googleapis.com/gmail/v1/users/{userId}/messages` | GET | oauth2-google | 🔵 |
+| `gws-drive` | Drive | `https://www.googleapis.com/drive/v3/files` | GET | oauth2-google | 🔵 |
+| `gws-calendar` | Calendar | `https://www.googleapis.com/calendar/v3/calendars/{id}/events` | GET | oauth2-google | 🔵 |
+
+---
+
+## Correlation & Audit Headers
+
+| Header | Purpose |
+|--------|---------|
+| `X-Infinity-Correlation-ID` | Unique request ID for distributed tracing; propagate across all service boundaries. |
+| `X-Infinity-Session-ID` | Agent session identifier; attach to all calls within a single agent execution. |
+| `X-GitHub-Delivery` | GitHub-assigned delivery GUID; present on all webhook and dispatch payloads. |
+
+All endpoints that carry sensitive data **must** mask `Authorization`, `CF-Access-Client-Secret`, and `token` fields in logs. See `auth-matrix.md` for full masking requirements.

@@ -1,96 +1,85 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Bootstraps the Infinity Orchestrator agent workspace without a hard
-    dependency on a locally present ACTIVE_MEMORY.md.
+    Infinity Agent Bootstrap — emits a JSON payload for agent initialisation.
 
 .DESCRIPTION
-    Resolves the agent workspace context by:
-      1. Using a locally present .infinity/ACTIVE_MEMORY.md if it is fresh
-         (within $MaxAgeMinutes of the current UTC time).
-      2. Falling back to fetching the file directly from the GitHub API when
-         the local copy is absent, empty, or stale.
-      3. Exposing the resolved memory content via a well-known output variable
-         (AGENT_MEMORY_PATH) so downstream scripts can consume it without
-         duplicating resolution logic.
+    Bootstraps an Infinity Orchestrator agent session by:
+      1. Attempting to load local memory from .infinity/ACTIVE_MEMORY.md.
+      2. If local memory is absent or stale, preferring GitHub-first memory
+         retrieval from infinity-core-memory via GitHub App authentication.
+      3. Loading the endpoint registry from .infinity/connectors/endpoint-registry.json.
+      4. Loading the org repo index from .infinity/ORG_REPO_INDEX.json.
+      5. Emitting a structured JSON bootstrap payload that includes instruction
+         pointers, memory retrieval plan, and endpoint registry summary.
 
-    Authentication follows the principle of least privilege:
-      - GitHub App (JWT → installation access token) is preferred when
-        GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are set.
-      - Falls back to GITHUB_TOKEN (Actions built-in token) when the App
-        credentials are absent.
-      - If no credentials are available the script degrades gracefully: it
-        uses the local copy if present, or exits with a clear error.
+    The script is DEFENSIVE and IDEMPOTENT:
+      - Missing local memory does NOT cause the script to fail; it degrades
+        gracefully and records a memory_retrieval_plan in the output payload.
+      - It is safe to run multiple times; re-runs do not alter repository state.
+      - All tokens are masked immediately after creation (::add-mask::).
 
-    The script is idempotent and safe to call multiple times in the same
-    workflow job.
+.PARAMETER WorkspacePath
+    Path to the checked-out infinity-orchestrator workspace.
+    Defaults to the current working directory.
 
-.PARAMETER MaxAgeMinutes
-    Maximum acceptable age (in minutes) for a locally cached ACTIVE_MEMORY.md.
-    If the file is older than this value it is considered stale and will be
-    re-fetched from the API.  Default: 60.
+.PARAMETER OutputPath
+    File path to write the JSON bootstrap payload.
+    Defaults to stdout only (no file written).
 
-.PARAMETER OrchestratorWorkspace
-    Path to the checked-out orchestrator repository.  Defaults to the current
-    working directory ($PWD).
-
-.PARAMETER MemorySourceRef
-    Branch or ref in Infinity-X-One-Systems/infinity-orchestrator from which
-    ACTIVE_MEMORY.md should be fetched when the local copy is stale/absent.
-    Default: main.
+.PARAMETER MemoryMaxAgeMinutes
+    Maximum acceptable age of local ACTIVE_MEMORY.md in minutes before a
+    GitHub-first refresh is preferred. Default: 120 (2 hours).
 
 .EXAMPLE
     ./.infinity/scripts/Invoke-InfinityAgentBootstrap.ps1
 
-    Bootstraps with defaults.  Uses the GitHub App if credentials are
-    available, otherwise falls back to GITHUB_TOKEN.
-
 .EXAMPLE
-    ./.infinity/scripts/Invoke-InfinityAgentBootstrap.ps1 -MaxAgeMinutes 30
-
-    Forces a re-fetch if the local ACTIVE_MEMORY.md is older than 30 minutes.
+    ./.infinity/scripts/Invoke-InfinityAgentBootstrap.ps1 -OutputPath /tmp/bootstrap.json
 
 .NOTES
-    Outputs:
-      - Sets the AGENT_MEMORY_PATH environment variable (and the equivalent
-        GitHub Actions output if running inside Actions).
-      - Writes a step summary to $GITHUB_STEP_SUMMARY when inside Actions.
+    Environment variables consumed (all optional — script degrades gracefully):
+      GITHUB_APP_ID               Numeric GitHub App ID for memory retrieval.
+      GITHUB_APP_PRIVATE_KEY      PEM RSA private key for the GitHub App.
+      GITHUB_APP_INSTALLATION_ID  Pre-known installation ID (skips discovery).
+      MEMORY_REPO_REF             Branch in infinity-core-memory (default: main).
+      ORCHESTRATOR_WORKSPACE      Override for WorkspacePath parameter.
 
-    Required secrets (when using GitHub App auth):
-      GITHUB_APP_ID             — Numeric GitHub App ID.
-      GITHUB_APP_PRIVATE_KEY    — PEM-encoded RSA private key.
-
-    Optional secrets:
-      GITHUB_APP_INSTALLATION_ID — Pre-known installation ID; skips discovery.
-      GITHUB_TOKEN               — Fallback when App credentials are absent.
+    TAP Protocol compliance:
+      P-001 — No secrets in output.
+      P-007 — Graceful degradation when ACTIVE_MEMORY.md is absent.
 #>
 
 [CmdletBinding()]
 param(
-    [Parameter()]
-    [ValidateRange(1, 1440)]
-    [int]$MaxAgeMinutes = 60,
-
-    [Parameter()]
-    [string]$OrchestratorWorkspace = $PWD.Path,
-
-    [Parameter()]
-    [string]$MemorySourceRef = 'main'
+    [string] $WorkspacePath      = '',
+    [string] $OutputPath         = '',
+    [int]    $MemoryMaxAgeMinutes = 120
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-$ORCHESTRATOR_ORG   = 'Infinity-X-One-Systems'
-$ORCHESTRATOR_REPO  = 'infinity-orchestrator'
-$MEMORY_FILE_PATH   = '.infinity/ACTIVE_MEMORY.md'
-$GITHUB_API         = 'https://api.github.com'
+$MEMORY_ORG       = 'Infinity-X-One-Systems'
+$MEMORY_REPO      = 'infinity-core-memory'
+$GITHUB_API       = 'https://api.github.com'
+$SCRIPT_VERSION   = '1.0.0'
 
-# ── Helper: non-shadowing wrappers ────────────────────────────────────────────
+# ── Helper: non-shadowing output wrappers ─────────────────────────────────────
 function Write-StepHeader {
     param([string]$Message)
     Write-Host "==> $Message"
+}
+
+function Write-Info {
+    param([string]$Message)
+    Write-Host "    $Message"
+}
+
+function Write-WarningStatus {
+    param([string]$Message)
+    Write-Host "::warning::$Message"
 }
 
 function Write-ErrorStatus {
@@ -99,29 +88,11 @@ function Write-ErrorStatus {
     [Console]::Error.WriteLine($Message)
 }
 
-function Write-WarningStatus {
-    param([string]$Message)
-    Write-Host "::warning::$Message"
-}
-
-function Write-Info {
-    param([string]$Message)
-    Write-Host "    $Message"
-}
-
-# ── Helper: mask a secret in GitHub Actions logs ─────────────────────────────
+# ── Helper: mask a secret in GitHub Actions logs ──────────────────────────────
 function Invoke-MaskSecret {
     param([string]$Secret)
     if (-not [string]::IsNullOrEmpty($Secret)) {
         Write-Host "::add-mask::$Secret"
-    }
-}
-
-# ── Helper: set an Actions output variable ────────────────────────────────────
-function Set-ActionsOutput {
-    param([string]$Name, [string]$Value)
-    if ($env:GITHUB_OUTPUT) {
-        "$Name=$Value" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
     }
 }
 
@@ -134,42 +105,28 @@ function ConvertTo-Base64Url {
         -replace '=', ''
 }
 
-# ── Build a short-lived GitHub App JWT (RS256) ───────────────────────────────
+# ── Build a short-lived GitHub App JWT (RS256) ────────────────────────────────
 function New-GitHubAppJWT {
-    param(
-        [string]$AppId,
-        [string]$PrivateKeyPem
-    )
+    param([string]$AppId, [string]$PrivateKeyPem)
 
-    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    $iat = $now - 60    # 60 seconds in the past (clock-skew tolerance)
-    $exp = $now + 600   # 10-minute expiry (GitHub maximum)
-
-    $headerB64  = ConvertTo-Base64Url -Bytes (
-        [Text.Encoding]::UTF8.GetBytes('{"alg":"RS256","typ":"JWT"}')
-    )
-    $payloadB64 = ConvertTo-Base64Url -Bytes (
-        [Text.Encoding]::UTF8.GetBytes(
-            "{`"iat`":$iat,`"exp`":$exp,`"iss`":`"$AppId`"}"
-        )
-    )
-
+    $now        = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $headerB64  = ConvertTo-Base64Url ([Text.Encoding]::UTF8.GetBytes('{"alg":"RS256","typ":"JWT"}'))
+    $payloadB64 = ConvertTo-Base64Url ([Text.Encoding]::UTF8.GetBytes(
+        "{`"iat`":$($now - 60),`"exp`":$($now + 600),`"iss`":`"$AppId`"}"
+    ))
     $signingInput = "$headerB64.$payloadB64"
-
     $rsa = [System.Security.Cryptography.RSA]::Create()
     try {
         $rsa.ImportFromPem($PrivateKeyPem)
-        $sigBytes = $rsa.SignData(
+        $sig = $rsa.SignData(
             [Text.Encoding]::UTF8.GetBytes($signingInput),
             [Security.Cryptography.HashAlgorithmName]::SHA256,
             [Security.Cryptography.RSASignaturePadding]::Pkcs1
         )
     }
-    finally {
-        $rsa.Dispose()
-    }
+    finally { $rsa.Dispose() }
 
-    return "$signingInput.$(ConvertTo-Base64Url -Bytes $sigBytes)"
+    return "$signingInput.$(ConvertTo-Base64Url $sig)"
 }
 
 # ── Minimal GitHub API wrapper ────────────────────────────────────────────────
@@ -181,226 +138,287 @@ function Invoke-GitHubApi {
         [string]   $TokenType = 'Bearer',
         [hashtable]$Body      = $null
     )
-
     $headers = @{
         'Accept'               = 'application/vnd.github+json'
         'Authorization'        = "$TokenType $Token"
         'X-GitHub-Api-Version' = '2022-11-28'
-        'User-Agent'           = 'InfinityOrchestrator-AgentBootstrap/1.0'
+        'User-Agent'           = 'InfinityOrchestrator-Bootstrap/1.0'
     }
-
     $params = @{ Uri = $Uri; Method = $Method; Headers = $headers }
-
     if ($null -ne $Body) {
         $params['Body']        = ($Body | ConvertTo-Json -Depth 10)
         $params['ContentType'] = 'application/json'
     }
-
     return Invoke-RestMethod @params
 }
 
-# ── Resolve an access token using whichever credentials are available ─────────
-function Resolve-AccessToken {
-    $AppId      = $env:GITHUB_APP_ID
-    $PrivateKey = $env:GITHUB_APP_PRIVATE_KEY
-    $InstallId  = $env:GITHUB_APP_INSTALLATION_ID
-    $GitHubToken = $env:GITHUB_TOKEN
+# ── Attempt GitHub-first memory retrieval ─────────────────────────────────────
+function Get-GitHubMemory {
+    param(
+        [string]$AppId,
+        [string]$PrivateKey,
+        [string]$InstallId,
+        [string]$MemoryRef
+    )
 
-    # Prefer GitHub App when credentials are present.
-    if (-not [string]::IsNullOrWhiteSpace($AppId) -and
-        -not [string]::IsNullOrWhiteSpace($PrivateKey)) {
-
-        Write-StepHeader 'Authenticating via GitHub App'
+    try {
+        Write-StepHeader 'Attempting GitHub-first memory retrieval'
+        # Normalise \n-escaped newlines that some secret stores produce
+        # (GitHub Actions secrets often store the PEM key with literal \n sequences).
         $PrivateKey = $PrivateKey -replace '\\n', "`n"
         $jwt = New-GitHubAppJWT -AppId $AppId -PrivateKeyPem $PrivateKey
         Invoke-MaskSecret -Secret $jwt
 
         if ([string]::IsNullOrWhiteSpace($InstallId)) {
-            Write-Info "Discovering installation for org: $ORCHESTRATOR_ORG"
+            Write-Info 'Discovering GitHub App installation...'
             $installations = Invoke-GitHubApi -Uri "$GITHUB_API/app/installations" -Token $jwt
-            $installation  = $installations |
-                             Where-Object { $_.account.login -eq $ORCHESTRATOR_ORG } |
-                             Select-Object -First 1
-            if ($null -eq $installation) {
-                throw "No GitHub App installation found for org '$ORCHESTRATOR_ORG'."
+            $install = $installations | Where-Object { $_.account.login -eq $MEMORY_ORG } | Select-Object -First 1
+            if ($null -eq $install) {
+                Write-WarningStatus "No GitHub App installation found for org '$MEMORY_ORG'. Skipping GitHub-first retrieval."
+                return $null
             }
-            $InstallId = [string]$installation.id
-            Write-Info "Resolved installation ID: $InstallId"
+            $InstallId = [string]$install.id
         }
 
-        $tokenResponse = Invoke-GitHubApi `
-            -Uri    "$GITHUB_API/app/installations/$InstallId/access_tokens" `
-            -Method 'POST' `
-            -Token  $jwt
-        $accessToken = $tokenResponse.token
+        $tokenResp  = Invoke-GitHubApi -Uri "$GITHUB_API/app/installations/$InstallId/access_tokens" -Method 'POST' -Token $jwt
+        $accessToken = $tokenResp.token
         Invoke-MaskSecret -Secret $accessToken
-        return $accessToken
+
+        $contentResp = Invoke-GitHubApi `
+            -Uri   "$GITHUB_API/repos/$MEMORY_ORG/$MEMORY_REPO/contents/.infinity/ACTIVE_MEMORY.md?ref=$MemoryRef" `
+            -Token $accessToken
+
+        # GitHub API returns base64 content with embedded newlines for readability;
+        # strip them before decoding so FromBase64String receives a clean string.
+        $rawBase64 = $contentResp.content
+        if ([string]::IsNullOrEmpty($rawBase64)) {
+            Write-WarningStatus 'GitHub API returned empty content for ACTIVE_MEMORY.md.'
+            return $null
+        }
+        try {
+            $memoryContent = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($rawBase64 -replace '[\r\n]','')))
+        }
+        catch {
+            Write-WarningStatus "Failed to decode base64 content from GitHub API: $($_.Exception.Message)"
+            return $null
+        }
+        Write-Info "GitHub-first memory retrieved ($($memoryContent.Length) chars)."
+        return $memoryContent
     }
-
-    # Fall back to GITHUB_TOKEN (Actions built-in).
-    if (-not [string]::IsNullOrWhiteSpace($GitHubToken)) {
-        Write-WarningStatus (
-            'GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY not set. ' +
-            'Falling back to GITHUB_TOKEN — read-only access assumed.'
-        )
-        return $GitHubToken
+    catch {
+        Write-WarningStatus "GitHub-first memory retrieval failed: $($_.Exception.Message)"
+        return $null
     }
-
-    return $null
-}
-
-# ── Fetch ACTIVE_MEMORY.md via the GitHub Contents API ───────────────────────
-function Get-MemoryFromApi {
-    param([string]$Token, [string]$Ref)
-
-    $uri = "$GITHUB_API/repos/$ORCHESTRATOR_ORG/$ORCHESTRATOR_REPO/contents/$MEMORY_FILE_PATH?ref=$Ref"
-    Write-Info "Fetching: $uri"
-
-    $authHeaders = @{
-        'Accept'               = 'application/vnd.github.raw+json'
-        'Authorization'        = "Bearer $Token"
-        'X-GitHub-Api-Version' = '2022-11-28'
-        'User-Agent'           = 'InfinityOrchestrator-AgentBootstrap/1.0'
-    }
-
-    $content = Invoke-RestMethod -Uri $uri -Method GET -Headers $authHeaders
-    return $content
-}
-
-# ── Check if the local memory file is fresh enough ───────────────────────────
-function Test-LocalMemoryFresh {
-    param([string]$FilePath, [int]$MaxAgeMinutes)
-
-    if (-not (Test-Path $FilePath)) { return $false }
-
-    $content = Get-Content -Raw -Path $FilePath
-    if ([string]::IsNullOrWhiteSpace($content)) { return $false }
-
-    $lastWrite = (Get-Item $FilePath).LastWriteTimeUtc
-    $ageMinutes = ([DateTimeOffset]::UtcNow - $lastWrite).TotalMinutes
-    if ($ageMinutes -gt $MaxAgeMinutes) {
-        Write-Info "Local ACTIVE_MEMORY.md is $([math]::Round($ageMinutes, 1)) minutes old (threshold: $MaxAgeMinutes min)."
-        return $false
-    }
-
-    return $true
 }
 
 # ════════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ════════════════════════════════════════════════════════════════════════════════
 
-Write-StepHeader 'Infinity Agent Bootstrap — starting'
-Write-Info "Workspace : $OrchestratorWorkspace"
-Write-Info "Max age   : $MaxAgeMinutes minutes"
-Write-Info "Source ref: $MemorySourceRef"
+Write-StepHeader "Infinity Agent Bootstrap v$SCRIPT_VERSION"
 
-$localMemoryPath = Join-Path $OrchestratorWorkspace $MEMORY_FILE_PATH
-
-# ── Step 1: Check whether a fresh local copy exists ───────────────────────────
-Write-StepHeader 'Checking local ACTIVE_MEMORY.md'
-
-if (Test-LocalMemoryFresh -FilePath $localMemoryPath -MaxAgeMinutes $MaxAgeMinutes) {
-    Write-Info 'Local ACTIVE_MEMORY.md is present and fresh — skipping API fetch.'
-    $memoryContent = Get-Content -Raw -Path $localMemoryPath
+# ── Resolve workspace path ────────────────────────────────────────────────────
+if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
+    $WorkspacePath = if ($env:ORCHESTRATOR_WORKSPACE) { $env:ORCHESTRATOR_WORKSPACE } else { $PWD.Path }
 }
-else {
-    # ── Step 2: Fetch from GitHub API ─────────────────────────────────────────
-    Write-StepHeader 'Fetching ACTIVE_MEMORY.md from GitHub API'
+Write-Info "Workspace: $WorkspacePath"
 
-    $accessToken = Resolve-AccessToken
+# ── Read env vars (all optional) ─────────────────────────────────────────────
+$AppId      = $env:GITHUB_APP_ID             ?? ''
+$PrivateKey = $env:GITHUB_APP_PRIVATE_KEY    ?? ''
+$InstallId  = $env:GITHUB_APP_INSTALLATION_ID ?? ''
+$MemoryRef  = if ($env:MEMORY_REPO_REF) { $env:MEMORY_REPO_REF } else { 'main' }
 
-    if ($null -eq $accessToken) {
-        # No auth available — use local copy if it exists (even if stale).
-        if (Test-Path $localMemoryPath) {
-            $content = Get-Content -Raw -Path $localMemoryPath
-            if (-not [string]::IsNullOrWhiteSpace($content)) {
-                Write-WarningStatus (
-                    'No GitHub credentials available. ' +
-                    'Using stale local ACTIVE_MEMORY.md as fallback.'
-                )
-                $memoryContent = $content
-            }
-            else {
-                Write-ErrorStatus (
-                    'No GitHub credentials available and local ACTIVE_MEMORY.md is empty. ' +
-                    'Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY or GITHUB_TOKEN.'
-                )
-                exit 1
-            }
+$hasAppCreds = (-not [string]::IsNullOrWhiteSpace($AppId)) -and (-not [string]::IsNullOrWhiteSpace($PrivateKey))
+
+# ── Bootstrap payload initialisation ─────────────────────────────────────────
+$payload = [ordered]@{
+    schema_version    = '1.0.0'
+    bootstrap_time    = [System.DateTime]::UtcNow.ToString('o')
+    script_version    = $SCRIPT_VERSION
+    workspace         = $WorkspacePath
+    memory_status     = 'unknown'
+    memory_source     = $null
+    memory_age_minutes = $null
+    memory_content_lines = $null
+    memory_retrieval_plan = [ordered]@{
+        local_path     = '.infinity/ACTIVE_MEMORY.md'
+        github_source  = "$MEMORY_ORG/$MEMORY_REPO"
+        github_ref     = $MemoryRef
+        github_auth    = if ($hasAppCreds) { 'github-app' } else { 'unavailable' }
+        strategy       = 'local-first-then-github'
+    }
+    endpoint_registry = $null
+    org_repo_index    = $null
+    tap_policy        = [ordered]@{
+        version        = '1.0.0'
+        policy_path    = '.infinity/policies/tap-protocol.md'
+        rules_active   = @('P-001','P-003','P-005','P-007')
+    }
+    instruction_pointers = [ordered]@{
+        active_memory          = '.infinity/ACTIVE_MEMORY.md'
+        agent_entrypoint       = '.infinity/AGENT_ENTRYPOINT.md'
+        endpoint_registry_json = '.infinity/connectors/endpoint-registry.json'
+        endpoint_registry_md   = '.infinity/connectors/endpoint-registry.md'
+        auth_matrix            = '.infinity/connectors/auth-matrix.md'
+        tap_policy             = '.infinity/policies/tap-protocol.md'
+        governance_runbook     = '.infinity/runbooks/governance-enforcement.md'
+        memory_sync_runbook    = '.infinity/runbooks/memory-sync.md'
+        org_repo_index_json    = '.infinity/ORG_REPO_INDEX.json'
+        org_repo_index_md      = '.infinity/ORG_REPO_INDEX.md'
+    }
+    warnings = [System.Collections.Generic.List[string]]::new()
+    decision_log = [ordered]@{
+        actor            = 'agent-bootstrap'
+        policy_rules_checked = @('P-001','P-007')
+        decision         = 'allowed'
+        justification    = ''
+    }
+}
+
+# ── Step 1: Try local memory ──────────────────────────────────────────────────
+Write-StepHeader 'Step 1: Checking local ACTIVE_MEMORY.md'
+
+$localMemoryPath = Join-Path $WorkspacePath '.infinity' 'ACTIVE_MEMORY.md'
+$localMemoryFound = Test-Path $localMemoryPath
+$memoryContent    = $null
+
+if ($localMemoryFound) {
+    $rawContent = Get-Content -Raw $localMemoryPath
+    if (-not [string]::IsNullOrWhiteSpace($rawContent)) {
+        $fileInfo = Get-Item $localMemoryPath
+        $ageMinutes = [int]([System.DateTime]::UtcNow - $fileInfo.LastWriteTimeUtc).TotalMinutes
+
+        Write-Info "Local ACTIVE_MEMORY.md found ($($rawContent.Split("`n").Count) lines, age: ${ageMinutes}m)."
+
+        if ($ageMinutes -le $MemoryMaxAgeMinutes) {
+            $memoryContent = $rawContent
+            $payload.memory_status        = 'local-fresh'
+            $payload.memory_source        = 'local'
+            $payload.memory_age_minutes   = $ageMinutes
+            $payload.memory_content_lines = $rawContent.Split("`n").Count
         }
         else {
-            Write-ErrorStatus (
-                'No GitHub credentials available and no local ACTIVE_MEMORY.md found. ' +
-                'Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY or GITHUB_TOKEN.'
-            )
-            exit 1
+            Write-WarningStatus "Local ACTIVE_MEMORY.md is ${ageMinutes}m old (threshold: ${MemoryMaxAgeMinutes}m). Preferring GitHub-first."
+            $payload.memory_status = 'local-stale'
+            $payload.warnings.Add("Local ACTIVE_MEMORY.md is stale (${ageMinutes}m). GitHub-first retrieval will be attempted.")
         }
     }
     else {
-        try {
-            $memoryContent = Get-MemoryFromApi -Token $accessToken -Ref $MemorySourceRef
+        Write-WarningStatus 'Local ACTIVE_MEMORY.md is empty.'
+        $payload.memory_status = 'local-empty'
+        $payload.warnings.Add('Local ACTIVE_MEMORY.md is empty.')
+    }
+}
+else {
+    Write-WarningStatus 'Local ACTIVE_MEMORY.md not found — this is expected on a clean checkout.'
+    $payload.memory_status = 'local-missing'
+    $payload.warnings.Add('Local ACTIVE_MEMORY.md not found. Attempting GitHub-first retrieval.')
+}
 
-            # Persist to disk for subsequent steps in the same job.
-            $destDir = Split-Path $localMemoryPath -Parent
-            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-            Set-Content -Path $localMemoryPath -Value $memoryContent -Encoding utf8 -NoNewline
-            Write-Info "Saved fetched memory to: $localMemoryPath"
+# ── Step 2: GitHub-first retrieval if needed ─────────────────────────────────
+if ($null -eq $memoryContent) {
+    Write-StepHeader 'Step 2: GitHub-first memory retrieval'
+    if ($hasAppCreds) {
+        $githubMemory = Get-GitHubMemory -AppId $AppId -PrivateKey $PrivateKey `
+                                          -InstallId $InstallId -MemoryRef $MemoryRef
+        if ($null -ne $githubMemory) {
+            $memoryContent = $githubMemory
+            $payload.memory_status        = 'github-retrieved'
+            $payload.memory_source        = "github:$MEMORY_ORG/$MEMORY_REPO@$MemoryRef"
+            $payload.memory_content_lines = $githubMemory.Split("`n").Count
         }
-        catch {
-            # API fetch failed — try the local stale copy as a last resort.
-            if (Test-Path $localMemoryPath) {
-                $staleContent = Get-Content -Raw -Path $localMemoryPath
-                if (-not [string]::IsNullOrWhiteSpace($staleContent)) {
-                    Write-WarningStatus "API fetch failed ($($_.Exception.Message)). Using stale local copy."
-                    $memoryContent = $staleContent
-                }
-                else {
-                    Write-ErrorStatus "API fetch failed and local ACTIVE_MEMORY.md is empty: $($_.Exception.Message)"
-                    exit 1
-                }
-            }
-            else {
-                Write-ErrorStatus "API fetch failed and no local ACTIVE_MEMORY.md exists: $($_.Exception.Message)"
-                exit 1
-            }
+        else {
+            $payload.memory_status = 'github-unavailable'
+            $payload.warnings.Add('GitHub-first memory retrieval returned no content.')
         }
+    }
+    else {
+        Write-WarningStatus 'GitHub App credentials not set — skipping GitHub-first retrieval. Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY to enable.'
+        $payload.memory_status = 'degraded-no-credentials'
+        $payload.warnings.Add('GITHUB_APP_ID or GITHUB_APP_PRIVATE_KEY not set. Running in degraded mode without memory.')
     }
 }
 
-# ── Step 3: Validate the resolved content ────────────────────────────────────
-Write-StepHeader 'Validating resolved memory content'
+# ── Step 3: Load endpoint registry ───────────────────────────────────────────
+Write-StepHeader 'Step 3: Loading endpoint registry'
+$registryPath = Join-Path $WorkspacePath '.infinity' 'connectors' 'endpoint-registry.json'
+if (Test-Path $registryPath) {
+    try {
+        $registryJson = Get-Content -Raw $registryPath | ConvertFrom-Json -AsHashtable
+        $categoryCount = ($registryJson.categories ?? @{}).Count
+        $payload.endpoint_registry = [ordered]@{
+            status         = 'loaded'
+            path           = '.infinity/connectors/endpoint-registry.json'
+            version        = $registryJson.version ?? 'unknown'
+            category_count = $categoryCount
+        }
+        Write-Info "Endpoint registry loaded ($categoryCount categories)."
+    }
+    catch {
+        Write-WarningStatus "Failed to parse endpoint registry: $($_.Exception.Message)"
+        $payload.endpoint_registry = [ordered]@{ status = 'parse-error'; error = $_.Exception.Message }
+        $payload.warnings.Add("Endpoint registry parse error: $($_.Exception.Message)")
+    }
+}
+else {
+    $payload.endpoint_registry = [ordered]@{ status = 'not-found'; path = '.infinity/connectors/endpoint-registry.json' }
+    $payload.warnings.Add('Endpoint registry not found at .infinity/connectors/endpoint-registry.json.')
+}
 
-if ([string]::IsNullOrWhiteSpace($memoryContent)) {
-    Write-ErrorStatus 'Resolved ACTIVE_MEMORY.md content is empty. Aborting bootstrap.'
+# ── Step 4: Load org repo index ───────────────────────────────────────────────
+Write-StepHeader 'Step 4: Loading org repo index'
+$indexPath = Join-Path $WorkspacePath '.infinity' 'ORG_REPO_INDEX.json'
+if (Test-Path $indexPath) {
+    try {
+        $indexJson = Get-Content -Raw $indexPath | ConvertFrom-Json -AsHashtable
+        $payload.org_repo_index = [ordered]@{
+            status       = 'loaded'
+            path         = '.infinity/ORG_REPO_INDEX.json'
+            last_updated = $indexJson.last_updated ?? 'unknown'
+            total_repos  = $indexJson.statistics.total ?? 0
+            active_repos = $indexJson.statistics.active ?? 0
+        }
+        Write-Info "Org repo index loaded (total: $($indexJson.statistics.total ?? 0))."
+    }
+    catch {
+        Write-WarningStatus "Failed to parse org repo index: $($_.Exception.Message)"
+        $payload.org_repo_index = [ordered]@{ status = 'parse-error'; error = $_.Exception.Message }
+        $payload.warnings.Add("Org repo index parse error: $($_.Exception.Message)")
+    }
+}
+else {
+    $payload.org_repo_index = [ordered]@{ status = 'not-found'; path = '.infinity/ORG_REPO_INDEX.json' }
+    $payload.warnings.Add('Org repo index not found. Trigger org-repo-index workflow to generate it.')
+}
+
+# ── Finalise decision log ─────────────────────────────────────────────────────
+$decisionStatus = if ($payload.memory_status -in @('local-fresh','github-retrieved')) {
+    'allowed'
+} elseif ($payload.memory_status -in @('degraded-no-credentials','github-unavailable','local-missing','local-empty','local-stale')) {
+    'degraded'
+} else {
+    'allowed'
+}
+
+$payload.decision_log.decision      = $decisionStatus
+$payload.decision_log.justification = "Memory status: $($payload.memory_status). Warnings: $($payload.warnings.Count)."
+
+# ── Emit JSON bootstrap payload ───────────────────────────────────────────────
+Write-StepHeader 'Emitting bootstrap payload'
+$jsonPayload = $payload | ConvertTo-Json -Depth 10
+
+Write-Host $jsonPayload
+
+if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+    $jsonPayload | Set-Content -Path $OutputPath -Encoding UTF8
+    Write-Info "Bootstrap payload written to: $OutputPath"
+}
+
+Write-StepHeader "Bootstrap complete. Status: $decisionStatus | Memory: $($payload.memory_status)"
+
+# Exit with a non-zero code only on hard failures, not on degraded mode
+if ($decisionStatus -eq 'denied') {
     exit 1
 }
-
-$lineCount = ($memoryContent -split "`n").Count
-Write-Info "Memory content: $lineCount lines"
-
-# ── Step 4: Export well-known output ─────────────────────────────────────────
-Write-StepHeader 'Exporting AGENT_MEMORY_PATH'
-
-$env:AGENT_MEMORY_PATH = $localMemoryPath
-Set-ActionsOutput -Name 'memory_path' -Value $localMemoryPath
-Set-ActionsOutput -Name 'memory_lines' -Value $lineCount
-
-Write-Info "AGENT_MEMORY_PATH = $localMemoryPath"
-
-# ── Step 5: Write GitHub Actions step summary ────────────────────────────────
-if ($env:GITHUB_STEP_SUMMARY) {
-    @"
-## Agent Bootstrap Summary
-
-| Field | Value |
-|-------|-------|
-| Memory path | ``$localMemoryPath`` |
-| Lines | $lineCount |
-| Max age (min) | $MaxAgeMinutes |
-| Source ref | ``$MemorySourceRef`` |
-| Timestamp | $(([System.DateTime]::UtcNow).ToString('yyyy-MM-ddTHH:mm:ssZ')) |
-"@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-}
-
-Write-StepHeader 'Agent bootstrap complete.'
+exit 0

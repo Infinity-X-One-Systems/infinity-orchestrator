@@ -1,127 +1,356 @@
 {
   "version": "1.0.0",
-  "schema": "https://github.com/Infinity-X-One-Systems/infinity-orchestrator/tree/main/.infinity/connectors/endpoint-registry.md",
   "last_updated": "2026-02-20T00:00:00Z",
+  "registry_id": "infinity-orchestrator-endpoints",
   "organization": "Infinity-X-One-Systems",
-  "endpoints": [
-    {
-      "id": "github-api",
-      "name": "GitHub REST API",
-      "description": "Primary GitHub REST API used for repository management, workflow dispatch, and GitHub App authentication.",
-      "base_url": "https://api.github.com",
-      "auth_method": "github_app",
-      "auth_fallback": "github_token",
-      "scopes_required": ["contents:read", "contents:write", "actions:write"],
-      "rate_limit": {
-        "requests_per_hour": 5000,
-        "authenticated": true
-      },
-      "health_check": {
-        "url": "https://api.github.com/zen",
-        "method": "GET",
-        "expected_status": 200
-      },
-      "governed": true,
-      "tags": ["core", "github", "api"]
+  "description": "Canonical machine-readable endpoint registry for the Infinity Orchestrator. Consumed by agents, bootstrap scripts, and governance tooling.",
+  "categories": {
+    "local": {
+      "description": "Endpoints that resolve on the local runner or development machine.",
+      "endpoints": [
+        {
+          "id": "local-health",
+          "name": "Local Health Check",
+          "url": "http://localhost:8080/health",
+          "method": "GET",
+          "auth": "none",
+          "tags": ["health", "local"],
+          "status": "active"
+        },
+        {
+          "id": "local-api",
+          "name": "Local Orchestrator API",
+          "url": "http://localhost:8080/api/v1",
+          "method": "GET",
+          "auth": "bearer",
+          "tags": ["api", "local"],
+          "status": "active"
+        }
+      ]
     },
-    {
-      "id": "github-app-auth",
-      "name": "GitHub App Authentication",
-      "description": "Short-lived installation access tokens minted from the Infinity Orchestrator GitHub App (app/infinity-orchestrator). Preferred over long-lived PATs.",
-      "base_url": "https://api.github.com/app",
-      "auth_method": "github_app_jwt",
-      "token_ttl_seconds": 600,
-      "endpoints": {
-        "installations": "/app/installations",
-        "access_tokens": "/app/installations/{installation_id}/access_tokens"
-      },
-      "governed": true,
-      "tags": ["auth", "github-app", "jwt"]
+    "cloud": {
+      "description": "Cloud-hosted endpoints for the Infinity platform.",
+      "endpoints": [
+        {
+          "id": "cloud-api-gateway",
+          "name": "Cloud API Gateway",
+          "url": "https://api.infinity-x-one.com/v1",
+          "method": "GET",
+          "auth": "bearer",
+          "tags": ["api", "cloud", "gateway"],
+          "status": "planned"
+        }
+      ]
     },
-    {
-      "id": "github-actions-api",
-      "name": "GitHub Actions API",
-      "description": "API for triggering and monitoring GitHub Actions workflow runs across the Infinity-X-One-Systems organization.",
-      "base_url": "https://api.github.com",
-      "auth_method": "github_app",
-      "auth_fallback": "github_token",
-      "scopes_required": ["actions:read", "actions:write"],
-      "endpoints": {
-        "workflow_dispatch": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
-        "list_runs": "/repos/{owner}/{repo}/actions/runs",
-        "list_workflows": "/repos/{owner}/{repo}/actions/workflows"
-      },
-      "governed": true,
-      "tags": ["ci", "github", "actions"]
+    "cloudflare": {
+      "description": "Cloudflare Tunnel, Gateway, Access, and management API endpoints.",
+      "endpoints": [
+        {
+          "id": "cf-tunnel-orchestrator",
+          "name": "Cloudflare Tunnel — Orchestrator",
+          "url": "https://orchestrator.infinity-x-one.systems",
+          "method": "GET",
+          "auth": "cloudflare-access",
+          "tags": ["cloudflare", "tunnel", "access"],
+          "status": "planned",
+          "notes": "Protected by Cloudflare Access JWT. Requires CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET headers."
+        },
+        {
+          "id": "cf-gateway",
+          "name": "Cloudflare Gateway Proxy",
+          "url": "https://gateway.infinity-x-one.systems/proxy",
+          "method": "POST",
+          "auth": "cloudflare-access",
+          "tags": ["cloudflare", "gateway"],
+          "status": "planned"
+        },
+        {
+          "id": "cf-api-dns",
+          "name": "Cloudflare API — DNS Management",
+          "url": "https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
+          "method": "GET",
+          "auth": "bearer",
+          "auth_secret": "CLOUDFLARE_API_TOKEN",
+          "tags": ["cloudflare", "dns", "api"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/cloudflare-connector.json"
+        },
+        {
+          "id": "cf-api-workers",
+          "name": "Cloudflare API — Workers Deploy",
+          "url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/workers/scripts/{script_name}",
+          "method": "PUT",
+          "auth": "bearer",
+          "auth_secret": "CLOUDFLARE_API_TOKEN",
+          "tags": ["cloudflare", "workers", "deploy"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/cloudflare-connector.json"
+        }
+      ]
     },
-    {
-      "id": "orchestrator-memory",
-      "name": "Orchestrator Memory (ACTIVE_MEMORY.md)",
-      "description": "Canonical agent memory file served via the GitHub Contents API from this repository. Consumed by all Infinity agents during bootstrap.",
-      "base_url": "https://api.github.com",
-      "auth_method": "github_app",
-      "auth_fallback": "github_token",
-      "content_path": ".infinity/ACTIVE_MEMORY.md",
-      "resolved_url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/contents/.infinity/ACTIVE_MEMORY.md",
-      "accept_header": "application/vnd.github.raw+json",
-      "governed": true,
-      "tags": ["memory", "agent", "bootstrap"]
+    "docker": {
+      "description": "Docker daemon and container management endpoints.",
+      "endpoints": [
+        {
+          "id": "docker-socket",
+          "name": "Docker Unix Socket",
+          "url": "unix:///var/run/docker.sock",
+          "method": "GET",
+          "auth": "unix-socket",
+          "tags": ["docker", "local"],
+          "status": "active",
+          "notes": "Security risk: use read-only mounts where possible. See docker-compose.singularity.yml."
+        },
+        {
+          "id": "docker-tcp",
+          "name": "Docker TCP API",
+          "url": "tcp://localhost:2375",
+          "method": "GET",
+          "auth": "tls-cert",
+          "tags": ["docker", "local"],
+          "status": "conditional",
+          "notes": "Only enabled when DOCKER_TLS_VERIFY=1 and certs are configured."
+        }
+      ]
     },
-    {
-      "id": "org-repo-index",
-      "name": "Organization Repository Index",
-      "description": "Live index of all repositories in Infinity-X-One-Systems, generated on a schedule and on demand. Stored at .infinity/ORG_REPO_INDEX.json in this repository.",
-      "base_url": "https://api.github.com",
-      "auth_method": "github_token",
-      "content_path": ".infinity/ORG_REPO_INDEX.json",
-      "resolved_url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/contents/.infinity/ORG_REPO_INDEX.json",
-      "refresh_workflow": ".github/workflows/org-repo-index.yml",
-      "governed": true,
-      "tags": ["index", "discovery", "org"]
+    "github_actions": {
+      "description": "GitHub Actions and workflow dispatch endpoints.",
+      "endpoints": [
+        {
+          "id": "gh-actions-dispatch",
+          "name": "GitHub Actions Workflow Dispatch",
+          "url": "https://api.github.com/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+          "method": "POST",
+          "auth": "github-app-token",
+          "tags": ["github", "actions", "dispatch"],
+          "status": "active",
+          "correlation_header": "X-GitHub-Delivery"
+        },
+        {
+          "id": "gh-repo-dispatch",
+          "name": "GitHub Repository Dispatch",
+          "url": "https://api.github.com/repos/{owner}/{repo}/dispatches",
+          "method": "POST",
+          "auth": "github-app-token",
+          "tags": ["github", "dispatch"],
+          "status": "active",
+          "correlation_header": "X-GitHub-Delivery"
+        },
+        {
+          "id": "gh-actions-list-runs",
+          "name": "GitHub Actions — List Workflow Runs",
+          "url": "https://api.github.com/repos/{owner}/{repo}/actions/runs",
+          "method": "GET",
+          "auth": "github-app-token",
+          "tags": ["github", "actions"],
+          "status": "active"
+        }
+      ]
     },
-    {
-      "id": "openai",
-      "name": "OpenAI / ChatGPT",
-      "description": "OpenAI API for GPT-4o, o3, embeddings, and assistants. Used by autonomous agents for inference, scoring, and documentation generation.",
-      "base_url": "https://api.openai.com/v1",
-      "auth_method": "bearer_token",
-      "auth_secret": "OPENAI_API_KEY",
-      "connector_config": ".infinity/connectors/openai-connector.json",
-      "governed": true,
-      "tags": ["ai", "llm", "openai", "chatgpt"]
+    "ai_services": {
+      "description": "AI inference and assistant endpoints (OpenAI, GitHub Copilot).",
+      "endpoints": [
+        {
+          "id": "openai-chat",
+          "name": "OpenAI Chat Completions",
+          "url": "https://api.openai.com/v1/chat/completions",
+          "method": "POST",
+          "auth": "bearer",
+          "auth_secret": "OPENAI_API_KEY",
+          "tags": ["ai", "openai", "llm", "chat"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/openai-connector.json"
+        },
+        {
+          "id": "openai-embeddings",
+          "name": "OpenAI Embeddings",
+          "url": "https://api.openai.com/v1/embeddings",
+          "method": "POST",
+          "auth": "bearer",
+          "auth_secret": "OPENAI_API_KEY",
+          "tags": ["ai", "openai", "embeddings"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/openai-connector.json"
+        },
+        {
+          "id": "copilot-chat",
+          "name": "GitHub Copilot Chat Completions",
+          "url": "https://api.githubcopilot.com/chat/completions",
+          "method": "POST",
+          "auth": "github-app-token",
+          "tags": ["ai", "copilot", "github", "chat"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/copilot-connector.json"
+        }
+      ]
     },
-    {
-      "id": "github-copilot",
-      "name": "GitHub Copilot",
-      "description": "GitHub Copilot Chat API and Copilot Mobile integration. Enables @infinity-orchestrator as a Copilot Extension.",
-      "base_url": "https://api.githubcopilot.com",
-      "auth_method": "github_app",
-      "auth_fallback": "github_token",
-      "connector_config": ".infinity/connectors/copilot-connector.json",
-      "governed": true,
-      "tags": ["ai", "copilot", "github-copilot", "mobile"]
+    "vscode_codespaces": {
+      "description": "VS Code Remote Development and GitHub Codespaces management endpoints.",
+      "endpoints": [
+        {
+          "id": "codespaces-list-org",
+          "name": "GitHub Codespaces — List Org Codespaces",
+          "url": "https://api.github.com/orgs/{org}/codespaces",
+          "method": "GET",
+          "auth": "github-app-token",
+          "tags": ["codespaces", "vscode", "github"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/vscode-connector.json"
+        },
+        {
+          "id": "codespaces-create",
+          "name": "GitHub Codespaces — Create",
+          "url": "https://api.github.com/repos/{owner}/{repo}/codespaces",
+          "method": "POST",
+          "auth": "github-app-token",
+          "tags": ["codespaces", "vscode", "github"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/vscode-connector.json"
+        }
+      ]
     },
-    {
-      "id": "cloudflare",
-      "name": "Cloudflare",
-      "description": "Cloudflare API for DNS, Workers, Pages, R2, KV, and Zero Trust management.",
-      "base_url": "https://api.cloudflare.com/client/v4",
-      "auth_method": "bearer_token",
-      "auth_secret": "CLOUDFLARE_API_TOKEN",
-      "connector_config": ".infinity/connectors/cloudflare-connector.json",
-      "governed": true,
-      "tags": ["cloudflare", "dns", "workers", "cdn"]
+    "mcp": {
+      "description": "Model Context Protocol (MCP) server endpoints for AI agent tool-calling.",
+      "endpoints": [
+        {
+          "id": "mcp-server-local",
+          "name": "MCP Server — Local",
+          "url": "http://localhost:3100/mcp",
+          "method": "POST",
+          "auth": "bearer",
+          "tags": ["mcp", "local", "ai"],
+          "status": "planned"
+        },
+        {
+          "id": "mcp-server-cloud",
+          "name": "MCP Server — Cloud",
+          "url": "https://mcp.infinity-x-one.systems",
+          "method": "POST",
+          "auth": "bearer",
+          "tags": ["mcp", "cloud", "ai"],
+          "status": "planned"
+        }
+      ]
     },
-    {
-      "id": "vscode-codespaces",
-      "name": "VS Code / GitHub Codespaces",
-      "description": "GitHub Codespaces API and VS Code tunnel integration for remote development and bidirectional local sync.",
-      "base_url": "https://api.github.com",
-      "auth_method": "github_app",
-      "auth_fallback": "github_token",
-      "connector_config": ".infinity/connectors/vscode-connector.json",
-      "governed": true,
-      "tags": ["vscode", "codespaces", "remote-dev"]
+    "rest_gateway": {
+      "description": "Generic REST gateway for proxied external API calls.",
+      "endpoints": [
+        {
+          "id": "rest-gateway-v1",
+          "name": "REST Gateway v1",
+          "url": "https://gateway.infinity-x-one.systems/rest/v1/{path}",
+          "method": "ANY",
+          "auth": "bearer",
+          "tags": ["gateway", "rest", "proxy"],
+          "status": "planned",
+          "audit_header": "X-Infinity-Correlation-ID"
+        }
+      ]
+    },
+    "ingestion_pipeline": {
+      "description": "Data ingestion pipeline endpoints for streaming and batch ingestion.",
+      "endpoints": [
+        {
+          "id": "ingestion-event-stream",
+          "name": "Event Stream Ingest",
+          "url": "https://ingest.infinity-x-one.systems/events",
+          "method": "POST",
+          "auth": "bearer",
+          "tags": ["ingestion", "streaming"],
+          "status": "planned",
+          "audit_header": "X-Infinity-Correlation-ID"
+        },
+        {
+          "id": "ingestion-batch",
+          "name": "Batch Ingest",
+          "url": "https://ingest.infinity-x-one.systems/batch",
+          "method": "POST",
+          "auth": "bearer",
+          "tags": ["ingestion", "batch"],
+          "status": "planned"
+        }
+      ]
+    },
+    "google_workspace": {
+      "description": "Google Workspace connector endpoints (planned).",
+      "endpoints": [
+        {
+          "id": "gws-gmail",
+          "name": "Google Workspace — Gmail",
+          "url": "https://gmail.googleapis.com/gmail/v1/users/{userId}/messages",
+          "method": "GET",
+          "auth": "oauth2-google",
+          "tags": ["google", "workspace", "gmail"],
+          "status": "planned"
+        },
+        {
+          "id": "gws-drive",
+          "name": "Google Workspace — Drive",
+          "url": "https://www.googleapis.com/drive/v3/files",
+          "method": "GET",
+          "auth": "oauth2-google",
+          "tags": ["google", "workspace", "drive"],
+          "status": "planned"
+        },
+        {
+          "id": "gws-calendar",
+          "name": "Google Workspace — Calendar",
+          "url": "https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events",
+          "method": "GET",
+          "auth": "oauth2-google",
+          "tags": ["google", "workspace", "calendar"],
+          "status": "planned"
+        }
+      ]
     }
-  ]
+  },
+  "auth_schemes": {
+    "none": {
+      "description": "No authentication required.",
+      "headers": []
+    },
+    "bearer": {
+      "description": "HTTP Bearer token authentication.",
+      "headers": ["Authorization: Bearer {token}"]
+    },
+    "github-app-token": {
+      "description": "Short-lived GitHub App installation access token minted via JWT.",
+      "headers": [
+        "Authorization: Bearer {installation_access_token}",
+        "X-GitHub-Api-Version: 2022-11-28"
+      ],
+      "token_ttl_seconds": 3600
+    },
+    "cloudflare-access": {
+      "description": "Cloudflare Access service token for machine-to-machine requests.",
+      "headers": [
+        "CF-Access-Client-Id: {CF_ACCESS_CLIENT_ID}",
+        "CF-Access-Client-Secret: {CF_ACCESS_CLIENT_SECRET}"
+      ]
+    },
+    "oauth2-google": {
+      "description": "Google OAuth2 service account or user credential.",
+      "headers": ["Authorization: Bearer {google_access_token}"],
+      "scopes_required": true
+    },
+    "tls-cert": {
+      "description": "Mutual TLS with client certificate.",
+      "headers": [],
+      "notes": "Requires DOCKER_CERT_PATH, DOCKER_TLS_VERIFY environment variables."
+    },
+    "unix-socket": {
+      "description": "Unix domain socket; no HTTP auth header needed but filesystem permissions apply.",
+      "headers": []
+    }
+  },
+  "correlation_headers": {
+    "X-Infinity-Correlation-ID": "Unique request identifier for distributed tracing; propagate across all service boundaries.",
+    "X-Infinity-Session-ID": "Agent session identifier; attach to all calls within a single agent execution.",
+    "X-GitHub-Delivery": "GitHub-assigned delivery GUID; present on all webhook and dispatch payloads."
+  },
+  "audit_requirements": {
+    "log_fields": ["timestamp", "endpoint_id", "method", "status_code", "correlation_id", "actor"],
+    "sensitive_fields_to_mask": ["Authorization", "CF-Access-Client-Secret", "token"],
+    "retention_policy": "90 days minimum; follow organisational data retention policy."
+  }
 }
