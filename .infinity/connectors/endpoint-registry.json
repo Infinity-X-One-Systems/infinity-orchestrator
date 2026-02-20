@@ -43,7 +43,7 @@
       ]
     },
     "cloudflare": {
-      "description": "Cloudflare Tunnel, Gateway, and Access endpoints.",
+      "description": "Cloudflare Tunnel, Gateway, Access, and management API endpoints.",
       "endpoints": [
         {
           "id": "cf-tunnel-orchestrator",
@@ -63,6 +63,28 @@
           "auth": "cloudflare-access",
           "tags": ["cloudflare", "gateway"],
           "status": "planned"
+        },
+        {
+          "id": "cf-api-dns",
+          "name": "Cloudflare API — DNS Management",
+          "url": "https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
+          "method": "GET",
+          "auth": "bearer",
+          "auth_secret": "CLOUDFLARE_API_TOKEN",
+          "tags": ["cloudflare", "dns", "api"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/cloudflare-connector.json"
+        },
+        {
+          "id": "cf-api-workers",
+          "name": "Cloudflare API — Workers Deploy",
+          "url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/workers/scripts/{script_name}",
+          "method": "PUT",
+          "auth": "bearer",
+          "auth_secret": "CLOUDFLARE_API_TOKEN",
+          "tags": ["cloudflare", "workers", "deploy"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/cloudflare-connector.json"
         }
       ]
     },
@@ -122,6 +144,117 @@
           "auth": "github-app-token",
           "tags": ["github", "actions"],
           "status": "active"
+        }
+      ]
+    },
+    "ai_services": {
+      "description": "AI inference and assistant endpoints (OpenAI, GitHub Copilot).",
+      "endpoints": [
+        {
+          "id": "openai-chat",
+          "name": "OpenAI Chat Completions",
+          "url": "https://api.openai.com/v1/chat/completions",
+          "method": "POST",
+          "auth": "bearer",
+          "auth_secret": "OPENAI_API_KEY",
+          "tags": ["ai", "openai", "llm", "chat"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/openai-connector.json"
+        },
+        {
+          "id": "openai-embeddings",
+          "name": "OpenAI Embeddings",
+          "url": "https://api.openai.com/v1/embeddings",
+          "method": "POST",
+          "auth": "bearer",
+          "auth_secret": "OPENAI_API_KEY",
+          "tags": ["ai", "openai", "embeddings"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/openai-connector.json"
+        },
+        {
+          "id": "copilot-chat",
+          "name": "GitHub Copilot Chat Completions (VS Code)",
+          "url": "https://api.githubcopilot.com/chat/completions",
+          "method": "POST",
+          "auth": "github-app-token",
+          "headers": {
+            "Copilot-Integration-Id": "vscode-chat"
+          },
+          "tags": ["ai", "copilot", "github", "chat", "vscode"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/copilot-connector.json"
+        },
+        {
+          "id": "copilot-mobile-chat",
+          "name": "GitHub Copilot Chat Completions (Mobile / GitHub.com)",
+          "url": "https://api.githubcopilot.com/chat/completions",
+          "method": "POST",
+          "auth": "github-app-token",
+          "headers": {
+            "Copilot-Integration-Id": "github.com"
+          },
+          "tags": ["ai", "copilot", "github", "chat", "mobile", "ios", "android"],
+          "status": "active",
+          "surfaces": ["mobile", "github.com"],
+          "connector_config": ".infinity/connectors/copilot-connector.json"
+        },
+        {
+          "id": "copilot-models",
+          "name": "GitHub Copilot — List Models",
+          "url": "https://api.githubcopilot.com/models",
+          "method": "GET",
+          "auth": "github-app-token",
+          "tags": ["ai", "copilot", "models"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/copilot-connector.json"
+        },
+        {
+          "id": "copilot-extension-event",
+          "name": "GitHub Copilot Extension — Inbound Webhook (mobile trigger)",
+          "url": "https://orchestrator.infinity-x-one.systems/copilot/events",
+          "method": "POST",
+          "auth": "ecdsa-es256",
+          "tags": ["ai", "copilot", "mobile", "webhook", "extension", "inbound"],
+          "status": "planned",
+          "note": "Inbound webhook receiver for @infinity-orchestrator Copilot Extension. GitHub POSTs here when a user invokes the agent on any surface (GitHub.com, VS Code, GitHub Mobile app). Validate X-GitHub-Public-Key-Signature before processing.",
+          "connector_config": ".infinity/connectors/copilot-connector.json"
+        },
+        {
+          "id": "copilot-seats",
+          "name": "GitHub Copilot — Org Seat Management",
+          "url": "https://api.github.com/orgs/{org}/copilot/billing/seats",
+          "method": "GET",
+          "auth": "github-app-token",
+          "permission_required": "copilot_user_management:read",
+          "tags": ["copilot", "github", "billing", "seats", "management"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/copilot-connector.json"
+        }
+      ]
+    },
+    "vscode_codespaces": {
+      "description": "VS Code Remote Development and GitHub Codespaces management endpoints.",
+      "endpoints": [
+        {
+          "id": "codespaces-list-org",
+          "name": "GitHub Codespaces — List Org Codespaces",
+          "url": "https://api.github.com/orgs/{org}/codespaces",
+          "method": "GET",
+          "auth": "github-app-token",
+          "tags": ["codespaces", "vscode", "github"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/vscode-connector.json"
+        },
+        {
+          "id": "codespaces-create",
+          "name": "GitHub Codespaces — Create",
+          "url": "https://api.github.com/repos/{owner}/{repo}/codespaces",
+          "method": "POST",
+          "auth": "github-app-token",
+          "tags": ["codespaces", "vscode", "github"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/vscode-connector.json"
         }
       ]
     },
@@ -257,6 +390,14 @@
     "unix-socket": {
       "description": "Unix domain socket; no HTTP auth header needed but filesystem permissions apply.",
       "headers": []
+    },
+    "ecdsa-es256": {
+      "description": "ECDSA P-256 (ES256) asymmetric signature used by GitHub Copilot Extensions for inbound webhook events. Verify X-GitHub-Public-Key-Signature against GitHub's published public keys — no shared secret required.",
+      "headers": [
+        "X-GitHub-Public-Key-Signature: {SIGNATURE}",
+        "X-GitHub-Public-Key-Identifier: {KEY_ID}"
+      ],
+      "notes": "Fetch the current public keys from https://api.github.com/meta/public_keys/copilot_api and verify using the key whose key_identifier matches the header value. No stored secret is required."
     }
   },
   "correlation_headers": {

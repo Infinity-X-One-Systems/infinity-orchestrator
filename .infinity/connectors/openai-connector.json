@@ -1,0 +1,82 @@
+{
+  "version": "1.0.0",
+  "id": "openai",
+  "name": "OpenAI / ChatGPT",
+  "description": "Connector for OpenAI API: GPT-4, GPT-4o, o3, embeddings, and fine-tuning. Used by the autonomous invention engine for idea generation, code synthesis, scoring, and documentation.",
+  "governed": true,
+  "base_url": "https://api.openai.com/v1",
+  "auth_method": "bearer_token",
+  "auth_secret": "OPENAI_API_KEY",
+  "organization_header": "OPENAI_ORG_ID",
+  "default_model": "gpt-4o",
+  "endpoints": {
+    "chat_completions": {
+      "path": "/chat/completions",
+      "method": "POST",
+      "description": "Core LLM inference for agents (code gen, scoring, documentation)"
+    },
+    "embeddings": {
+      "path": "/embeddings",
+      "method": "POST",
+      "description": "Generate vector embeddings for semantic search and memory",
+      "default_model": "text-embedding-3-large"
+    },
+    "models": {
+      "path": "/models",
+      "method": "GET",
+      "description": "List available models"
+    },
+    "fine_tuning": {
+      "path": "/fine_tuning/jobs",
+      "method": "POST",
+      "description": "Fine-tune models on org-specific data"
+    },
+    "assistants": {
+      "path": "/assistants",
+      "method": "POST",
+      "description": "Create persistent assistants for long-running agent sessions"
+    },
+    "threads": {
+      "path": "/threads",
+      "method": "POST",
+      "description": "Manage conversation threads for assistants"
+    },
+    "vector_stores": {
+      "path": "/vector_stores",
+      "method": "POST",
+      "description": "Persistent vector stores for agent memory and RAG"
+    }
+  },
+  "rate_limits": {
+    "requests_per_minute": 500,
+    "tokens_per_minute": 800000,
+    "tokens_per_day": 10000000
+  },
+  "guardrail_limits": {
+    "max_tokens_per_run": 100000,
+    "max_cost_per_run_usd": 5.00
+  },
+  "models_available": [
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4-turbo",
+    "gpt-4",
+    "o3",
+    "o3-mini",
+    "o1",
+    "text-embedding-3-large",
+    "text-embedding-3-small"
+  ],
+  "usage_contexts": [
+    "autonomous-invention: idea scoring and generation",
+    "genesis-loop: code synthesis and refactoring",
+    "self-healing: failure analysis and fix generation",
+    "reporting: documentation generation"
+  ],
+  "health_check": {
+    "url": "https://api.openai.com/v1/models",
+    "method": "GET",
+    "expected_status": 200
+  },
+  "tags": ["ai", "llm", "openai", "chatgpt", "gpt4", "embeddings"]
+}

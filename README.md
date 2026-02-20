@@ -1,6 +1,8 @@
 # Infinity Orchestrator
 
-**A fully autonomous, zero-touch GitHub-native orchestration system for managing all repositories in the InfinityXOneSystems organization.**
+**A fully autonomous, zero-touch GitHub-native orchestration system for managing all repositories in the Infinity-X-One-Systems organization.**
+
+> 🤖 **For AI agents:** Read [`AGENT_ENTRYPOINT.md`](./AGENT_ENTRYPOINT.md) first — it is the canonical bootstrap guide for all autonomous actors interacting with this repository.
 
 ## 🚀 Overview
 
@@ -12,6 +14,10 @@ Infinity Orchestrator is a comprehensive automation system that provides:
 - 🔒 **Security First**: Built-in vulnerability scanning and automated updates
 - 📊 **Health Monitoring**: Continuous monitoring and alerting
 - 🌐 **GitHub Native**: Uses only GitHub technologies (Actions, Apps, OAuth)
+- 🧠 **Persistent Memory**: Auto-rehydrating `ACTIVE_MEMORY.md` snapshot consumed by all agents
+- 🔌 **Connector System**: Governed integrations for OpenAI/ChatGPT, GitHub Copilot, Cloudflare, and VS Code/Codespaces
+- 📜 **TAP Governance**: Policy > Authority > Truth protocol with 8 immutable guardrails
+- 🖥️ **Bidirectional Sync**: Local ↔ Docker ↔ GitHub sync every 30 minutes
 
 ## 🎯 Key Features
 
@@ -49,16 +55,20 @@ Infinity Orchestrator is a comprehensive automation system that provides:
 
 ### Prerequisites
 - GitHub Organization with repositories
-- GitHub App or Personal Access Token
+- GitHub App (`infinity-orchestrator`) installed on `Infinity-X-One-Systems`
 - Admin access to the organization
 
 ### Setup (5 minutes)
 
-1. **Configure GitHub App/Token**
+1. **Configure GitHub App credentials** (no PATs — TAP P-002)
    ```bash
-   # Add these secrets to repository settings
-   GH_TOKEN=<your-token>
-   GH_ORG=Infinity-X-One-Systems
+   # Add these secrets to repository Settings → Secrets and variables → Actions
+   GITHUB_APP_ID=<your-app-id>
+   GITHUB_APP_PRIVATE_KEY=<contents-of-private-key.pem>
+   # Optional AI / Cloudflare connectors
+   OPENAI_API_KEY=sk-...
+   CLOUDFLARE_API_TOKEN=<scoped-token>
+   CLOUDFLARE_ACCOUNT_ID=<account-id>
    ```
 
 2. **Enable GitHub Actions**
@@ -75,6 +85,7 @@ Infinity Orchestrator is a comprehensive automation system that provides:
    ```
 
 📖 **Detailed setup instructions**: See [SETUP.md](./SETUP.md)
+🤖 **Agent bootstrap guide**: See [AGENT_ENTRYPOINT.md](./AGENT_ENTRYPOINT.md)
 
 ## 🏗️ Architecture
 
@@ -111,48 +122,96 @@ The orchestrator consists of several integrated components:
 - **Purpose**: Discover and catalog all organization repositories
 - **Output**: Updated `config/repositories.json`
 
-### 2. Multi-Repository Build (`multi-repo-build.yml`)
+### 2. Org Repo Index (`org-repo-index.yml`)
+- **Schedule**: Every 6 hours + `workflow_dispatch`
+- **Purpose**: Generate live `.infinity/ORG_REPO_INDEX.json` and `.infinity/ORG_REPO_INDEX.md`
+- **Output**: Machine-readable + human-readable index
+
+### 3. Multi-Repository Build (`multi-repo-build.yml`)
 - **Schedule**: Daily at midnight UTC
 - **Trigger**: Push to main branch
 - **Purpose**: Build and test all repositories
 
-### 3. Health Monitor (`health-monitor.yml`)
+### 4. Genesis Autonomous Loop (`genesis-loop.yml`)
+- **Schedule**: Every 6 hours
+- **Purpose**: Continuous software improvement — Plan → Code → Validate → Diagnose → Heal → Deploy
+
+### 5. Health Monitor (`health-monitor.yml`)
 - **Schedule**: Every 15 minutes
 - **Purpose**: Check system health and trigger alerts
 
-### 4. Self-Healing (`self-healing.yml`)
+### 6. Self-Healing (`self-healing.yml`)
 - **Trigger**: On health check failures
 - **Purpose**: Automatically recover from common issues
 
-### 5. Security Scanner (`security-scan.yml`)
+### 7. Security Scanner (`security-scan.yml`)
 - **Schedule**: Daily
 - **Purpose**: Scan for vulnerabilities and create fix PRs
+
+### 8. Memory Sync & Rehydrate (`memory-sync.yml`, `rehydrate.yml`)
+- **Schedule**: Hourly (memory-sync), every 6 hours (rehydrate)
+- **Purpose**: Keep `.infinity/ACTIVE_MEMORY.md` fresh for agent sessions
+
+### 9. Local & Docker Bidirectional Sync (`local-docker-sync.yml`)
+- **Schedule**: Every 30 minutes
+- **Purpose**: Sync `.infinity/` artifacts between GitHub, local filesystem, and Docker Singularity Mesh
+
+## 🛡️ TAP Governance Protocol
+
+All autonomous operations are governed by the **TAP Protocol** (Policy > Authority > Truth):
+
+| Layer | Document | Description |
+|-------|---------|-------------|
+| Immutable guardrails | [`.infinity/policies/tap-protocol.md`](./.infinity/policies/tap-protocol.md) | 8 rules: no secrets in logs, no PATs, bot attribution, graceful degradation |
+| Governance framework | [`.infinity/policies/governance.md`](./.infinity/policies/governance.md) | Role hierarchy, decision matrix, change management |
+| Circuit-breakers | [`.infinity/policies/guardrails.md`](./.infinity/policies/guardrails.md) | 15 hard limits, rate limits, destructive-action confirmation |
+| Enforcement runbook | [`.infinity/runbooks/governance-enforcement.md`](./.infinity/runbooks/governance-enforcement.md) | TAP gate steps, secret masking, audit logging |
+
+## 🔌 Connector System
+
+Governed integrations for external services:
+
+| Connector | Config | Secrets Required |
+|-----------|--------|-----------------|
+| OpenAI / ChatGPT | [`.infinity/connectors/openai-connector.json`](./.infinity/connectors/openai-connector.json) | `OPENAI_API_KEY` |
+| GitHub Copilot | [`.infinity/connectors/copilot-connector.json`](./.infinity/connectors/copilot-connector.json) | GitHub App token |
+| Cloudflare | [`.infinity/connectors/cloudflare-connector.json`](./.infinity/connectors/cloudflare-connector.json) | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
+| VS Code / Codespaces | [`.infinity/connectors/vscode-connector.json`](./.infinity/connectors/vscode-connector.json) | GitHub App token, `VSCODE_TUNNEL_TOKEN` |
+
+All endpoints are registered in [`.infinity/connectors/endpoint-registry.json`](./.infinity/connectors/endpoint-registry.json).
 
 ## 📁 Repository Structure
 
 ```
 infinity-orchestrator/
+├── AGENT_ENTRYPOINT.md      ← 🤖 Agent bootstrap guide (read first!)
+├── README.md                ← This file
+├── ARCHITECTURE.md          ← System architecture
+├── SETUP.md                 ← Setup guide (updated secrets/permissions)
+├── SECURITY.md              ← Security policy
+├── CONTRIBUTING.md          ← Contribution guidelines
+├── QUICKREF.md              ← Quick reference card
+│
+├── .infinity/               ← Agent workspace root
+│   ├── ACTIVE_MEMORY.md     ← Live state snapshot (auto-rehydrated)
+│   ├── ORG_REPO_INDEX.json  ← All org repos (auto-generated)
+│   ├── ORG_REPO_INDEX.md    ← Human-readable repo index
+│   ├── connectors/          ← External service connectors
+│   ├── policies/            ← TAP Protocol, governance, guardrails
+│   ├── runbooks/            ← Operational runbooks
+│   └── scripts/             ← Bootstrap + sync scripts
+│
 ├── .github/
-│   ├── workflows/           # Main orchestration workflows
-│   │   ├── repo-sync.yml
-│   │   ├── multi-repo-build.yml
-│   │   ├── health-monitor.yml
-│   │   ├── self-healing.yml
-│   │   └── security-scan.yml
-│   ├── workflows/reusable/  # Reusable workflow templates
-│   └── ISSUE_TEMPLATE/      # Issue templates
+│   └── workflows/           ← All GitHub Actions workflows (14 total)
+│
 ├── config/
-│   ├── orchestrator.yml     # Main configuration
-│   └── repositories.json    # Auto-generated repo manifest
-├── scripts/
-│   ├── discover-repos.sh    # Repository discovery
-│   ├── build-orchestrator.sh
-│   ├── health-check.sh
-│   └── self-heal.sh
-├── ARCHITECTURE.md          # Architecture documentation
-├── SETUP.md                 # Setup guide
-├── CONTRIBUTING.md          # Contribution guidelines
-└── README.md                # This file
+│   ├── orchestrator.yml         ← Master config (connectors, sync, runners)
+│   ├── repositories.json        ← Auto-generated repo manifest
+│   └── github-app-manifest.json ← GitHub App max-permission manifest
+│
+├── scripts/                 ← Shell scripts
+├── stacks/                  ← Agent implementations (Genesis, Vision, etc.)
+└── docker-compose.singularity.yml  ← Singularity Mesh deployment
 ```
 
 ## 🎮 Usage
@@ -317,6 +376,11 @@ The Singularity Mesh is a containerized, parallel deployment system for the enti
 - [x] Self-healing system
 - [x] Security scanning
 - [x] **Singularity Mesh (Docker parallel orchestration)**
+- [x] **TAP Protocol governance (P-001..P-008)**
+- [x] **Connector system (OpenAI, Copilot, Cloudflare, VS Code)**
+- [x] **Persistent memory + bidirectional sync**
+- [x] **GitHub App maximum-permission manifest**
+- [x] **Agent entrypoint + org repo index**
 - [ ] Performance analytics dashboard
 - [ ] Cost optimization
 - [ ] Multi-cloud deployment support

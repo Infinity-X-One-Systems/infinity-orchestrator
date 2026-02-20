@@ -1,0 +1,103 @@
+{
+  "version": "1.0.0",
+  "id": "vscode",
+  "name": "VS Code / GitHub Codespaces",
+  "description": "Connector for VS Code Remote Development and GitHub Codespaces. Enables the orchestrator to manage Codespace lifecycles, sync workspace settings, manage devcontainer configurations, and access VS Code tunnels for bidirectional local development integration.",
+  "governed": true,
+  "codespaces": {
+    "base_url": "https://api.github.com",
+    "auth_method": "github_app",
+    "auth_fallback": "github_token",
+    "endpoints": {
+      "list_org_codespaces": {
+        "path": "/orgs/{org}/codespaces",
+        "method": "GET",
+        "description": "List all Codespaces for the organization"
+      },
+      "list_user_codespaces": {
+        "path": "/user/codespaces",
+        "method": "GET",
+        "description": "List all Codespaces for the authenticated user"
+      },
+      "create_codespace": {
+        "path": "/repos/{owner}/{repo}/codespaces",
+        "method": "POST",
+        "description": "Create a new Codespace for a repository"
+      },
+      "start_codespace": {
+        "path": "/user/codespaces/{codespace_name}/start",
+        "method": "POST",
+        "description": "Start a stopped Codespace"
+      },
+      "stop_codespace": {
+        "path": "/user/codespaces/{codespace_name}/stop",
+        "method": "POST",
+        "description": "Stop a running Codespace"
+      },
+      "delete_codespace": {
+        "path": "/user/codespaces/{codespace_name}",
+        "method": "DELETE",
+        "description": "Delete a Codespace (requires human confirmation per guardrails)"
+      },
+      "get_codespace": {
+        "path": "/user/codespaces/{codespace_name}",
+        "method": "GET",
+        "description": "Get details of a specific Codespace"
+      },
+      "codespace_secrets": {
+        "path": "/user/codespaces/secrets",
+        "method": "GET|PUT|DELETE",
+        "description": "Manage Codespace user secrets"
+      },
+      "repo_devcontainer": {
+        "path": "/repos/{owner}/{repo}/contents/.devcontainer",
+        "method": "GET",
+        "description": "Read devcontainer configuration for a repository"
+      }
+    }
+  },
+  "vscode_tunnel": {
+    "description": "VS Code Remote Tunnels allow the orchestrator to expose a local or runner environment as a VS Code Server accessible from any browser or VS Code client",
+    "cli_command": "code tunnel --accept-server-license-terms --name infinity-orchestrator",
+    "auth_method": "github_oauth",
+    "auth_secret": "VSCODE_TUNNEL_TOKEN",
+    "tunnel_name": "infinity-orchestrator",
+    "capabilities": [
+      "Full terminal access to runner environment",
+      "Live file editing on runner",
+      "Debug active workflow runs",
+      "Browse repository filesystem",
+      "Run scripts interactively"
+    ]
+  },
+  "devcontainer": {
+    "description": "Standard devcontainer configuration for the infinity-orchestrator repository",
+    "config_path": ".devcontainer/devcontainer.json",
+    "recommended_image": "mcr.microsoft.com/devcontainers/universal:2",
+    "features": [
+      "ghcr.io/devcontainers/features/github-cli:1",
+      "ghcr.io/devcontainers/features/docker-in-docker:2",
+      "ghcr.io/devcontainers/features/python:1",
+      "ghcr.io/devcontainers/features/powershell:1"
+    ],
+    "extensions": [
+      "GitHub.copilot",
+      "GitHub.copilot-chat",
+      "ms-python.python",
+      "ms-azuretools.vscode-docker",
+      "redhat.vscode-yaml",
+      "ms-vscode.github-actions"
+    ]
+  },
+  "local_sync": {
+    "description": "Bidirectional sync between local VS Code workspace and the orchestrator repository",
+    "workflow": ".github/workflows/local-docker-sync.yml",
+    "sync_paths": [
+      ".infinity/ACTIVE_MEMORY.md",
+      ".infinity/ORG_REPO_INDEX.json",
+      "config/repositories.json",
+      "logs/telemetry/"
+    ]
+  },
+  "tags": ["vscode", "codespaces", "devcontainer", "remote-development", "tunnel"]
+}

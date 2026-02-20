@@ -26,33 +26,46 @@
    - Pull Requests: Read & Write
    - Workflows: Read & Write
    - Metadata: Read
+   - Administration: Read & Write (for repo management)
+   - Organization → Members: Read & Write
+   - Organization → Self-hosted runners: Read & Write
+   - (See `config/github-app-manifest.json` for the full permission manifest)
 
 3. Generate and save:
-   - App ID
-   - Private Key
-   - Client Secret
+   - App ID (numeric, shown on the App settings page)
+   - Private Key (download as `.pem` file from App settings → Private keys)
+   - Installation ID (shown in the URL when you install the App on the org:
+     `https://github.com/organizations/Infinity-X-One-Systems/settings/installations/<ID>`)
 
 ### Step 2: Repository Secrets Configuration
 
-Add the following secrets to this repository:
+Add the following secrets in **Settings → Secrets and variables → Actions**:
 
 ```bash
-# GitHub App credentials
-GH_APP_ID=<your-app-id>
-GH_APP_PRIVATE_KEY=<your-private-key>
-GH_APP_CLIENT_SECRET=<your-client-secret>
+# ── GitHub App credentials (REQUIRED — no long-lived PATs per TAP P-002) ──
+GITHUB_APP_ID=<numeric-app-id>
+GITHUB_APP_PRIVATE_KEY=<contents-of-private-key.pem>
+GITHUB_APP_INSTALLATION_ID=<numeric-installation-id>  # optional; if omitted, the bootstrap script auto-discovers it via the GitHub App installations API
 
-# Or use a Personal Access Token (classic)
-GH_TOKEN=<your-token>
+# ── Organization ──
+GH_ORG=Infinity-X-One-Systems   # optional; defaults to this value
 
-# Organization name
-GH_ORG=Infinity-X-One-Systems
+# ── AI connectors (required for autonomous invention engine) ──
+OPENAI_API_KEY=sk-...
+
+# ── Cloudflare connectors (required for CF automation) ──
+CLOUDFLARE_API_TOKEN=<scoped-cloudflare-api-token>
+CLOUDFLARE_ACCOUNT_ID=<cloudflare-account-id>
+CLOUDFLARE_ZONE_ID=<primary-zone-id>   # optional; per-zone ops
+
+# ── VS Code / Codespaces (optional — for tunnel access) ──
+VSCODE_TUNNEL_TOKEN=<tunnel-token>
 ```
 
-To add secrets:
-1. Go to repository Settings → Secrets and variables → Actions
-2. Click "New repository secret"
-3. Add each secret from the list above
+> **Security note (TAP P-002):** Long-lived Personal Access Tokens (PATs) must
+> **not** be stored as Actions secrets.  Use GitHub App installation tokens for
+> all automated operations.  `GITHUB_TOKEN` is injected automatically by Actions
+> and does not need to be configured.
 
 ### Step 3: Enable GitHub Actions
 
@@ -136,22 +149,32 @@ gh workflow run repo-sync.yml
 
 After setup, verify the system is working:
 
-1. **Check workflow runs**:
+1. **Check agent entrypoint** (read this first for all agent operations):
+   ```bash
+   cat AGENT_ENTRYPOINT.md
+   ```
+
+2. **Bootstrap agent memory**:
+   ```powershell
+   ./.infinity/scripts/Invoke-InfinityAgentBootstrap.ps1
+   ```
+
+3. **Check workflow runs**:
    ```bash
    gh run list
    ```
 
-2. **View repository manifest**:
+4. **View repository manifest**:
    ```bash
    cat config/repositories.json
    ```
 
-3. **Test manual build**:
+5. **Test manual build**:
    ```bash
-   gh workflow run multi-repo-build.yml
+   gh workflow run repo-sync.yml
    ```
 
-4. **Check logs**:
+6. **Check logs**:
    ```bash
    gh run view --log
    ```

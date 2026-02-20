@@ -1,0 +1,258 @@
+name: Local & Docker Bidirectional Sync
+
+# Bidirectional synchronisation between the Infinity Orchestrator repository
+# and a local development environment or Docker-based Singularity Mesh.
+#
+# PUSH direction (GitHub → local/Docker):
+#   - Exports the latest .infinity/ artifacts, config/, and scripts/ to a
+#     release artifact that a local machine or Docker container can pull.
+#
+# PULL direction (local/Docker → GitHub):
+#   - Accepts an incoming `repository_dispatch` event (event_type: local_sync)
+#     carrying updated memory, telemetry, or config payloads and commits them.
+#
+# Bidirectional triggers:
+#   1. schedule: every 30 minutes
+#   2. workflow_dispatch: manual with direction choice
+#   3. repository_dispatch event_type: local_sync  (from local/Docker)
+#   4. push to main that touches sync paths
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+
+  workflow_dispatch:
+    inputs:
+      direction:
+        description: 'Sync direction'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - push
+          - pull
+      force:
+        description: 'Force sync even if no changes detected'
+        required: false
+        type: boolean
+        default: false
+
+  # Fires when a local machine or Docker container sends updated artifacts.
+  repository_dispatch:
+    types:
+      - local_sync
+
+  push:
+    branches:
+      - main
+    paths:
+      - '.infinity/ACTIVE_MEMORY.md'
+      - '.infinity/ORG_REPO_INDEX.json'
+      - 'config/repositories.json'
+      - 'config/orchestrator.yml'
+
+permissions:
+  contents: write   # required to commit inbound artifacts
+  actions: read
+
+concurrency:
+  group: local-docker-sync
+  cancel-in-progress: false
+
+jobs:
+
+  # ── PUSH: export latest artifacts as a downloadable release ────────────────
+  push-to-local:
+    name: Push — Export Artifacts
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name != 'repository_dispatch' &&
+      (github.event.inputs.direction == 'push' ||
+       github.event.inputs.direction == 'both' ||
+       github.event.inputs.direction == '' ||
+       github.event_name == 'push' ||
+       github.event_name == 'schedule')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Build sync package
+        id: package
+        run: |
+          set -euo pipefail
+
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H%M%SZ")
+          PACKAGE_DIR="/tmp/infinity-sync-${TIMESTAMP}"
+          mkdir -p "${PACKAGE_DIR}"
+
+          # Core memory artifacts
+          cp -r .infinity/ "${PACKAGE_DIR}/.infinity"
+
+          # Config
+          mkdir -p "${PACKAGE_DIR}/config"
+          cp config/orchestrator.yml   "${PACKAGE_DIR}/config/"
+          cp config/repositories.json  "${PACKAGE_DIR}/config/" 2>/dev/null || true
+
+          # Scripts
+          mkdir -p "${PACKAGE_DIR}/scripts"
+          cp scripts/*.sh "${PACKAGE_DIR}/scripts/"
+
+          # Manifest metadata
+          cat > "${PACKAGE_DIR}/sync-manifest.json" << EOF
+          {
+            "version": "1.0.0",
+            "exported_at": "${TIMESTAMP}",
+            "source_repo": "${{ github.repository }}",
+            "source_branch": "${{ github.ref_name }}",
+            "source_sha": "${{ github.sha }}",
+            "trigger": "${{ github.event_name }}",
+            "contents": [
+              ".infinity/",
+              "config/orchestrator.yml",
+              "config/repositories.json",
+              "scripts/"
+            ],
+            "pull_back_instructions": "Send a repository_dispatch with event_type='local_sync' to push changes back",
+            "pull_back_url": "https://api.github.com/repos/${{ github.repository }}/dispatches"
+          }
+          EOF
+
+          # Create archive
+          tar -czf "/tmp/infinity-sync-${TIMESTAMP}.tar.gz" -C "${PACKAGE_DIR}" .
+          echo "archive=/tmp/infinity-sync-${TIMESTAMP}.tar.gz" >> "${GITHUB_OUTPUT}"
+          echo "timestamp=${TIMESTAMP}" >> "${GITHUB_OUTPUT}"
+
+          echo "Sync package built: infinity-sync-${TIMESTAMP}.tar.gz"
+
+      - name: Upload sync artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: infinity-sync-${{ steps.package.outputs.timestamp }}
+          path: ${{ steps.package.outputs.archive }}
+          retention-days: 3
+
+      - name: Write push summary
+        run: |
+          echo "## 🚀 Push Sync Summary" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Field | Value |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "|-------|-------|" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Artifact | \`infinity-sync-${{ steps.package.outputs.timestamp }}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Source SHA | \`${{ github.sha }}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "**Download**: Go to Actions → This run → Artifacts to download the sync package." >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "**Apply locally**:" >> "${GITHUB_STEP_SUMMARY}"
+          echo '```bash' >> "${GITHUB_STEP_SUMMARY}"
+          echo 'tar -xzf infinity-sync-*.tar.gz -C /path/to/infinity-orchestrator' >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "**Apply in Docker (Singularity Mesh)**:" >> "${GITHUB_STEP_SUMMARY}"
+          echo '```bash' >> "${GITHUB_STEP_SUMMARY}"
+          echo 'docker cp infinity-sync-*.tar.gz neural-core:/workspace/' >> "${GITHUB_STEP_SUMMARY}"
+          echo 'docker exec neural-core tar -xzf /workspace/infinity-sync-*.tar.gz -C /workspace' >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+
+  # ── PULL: accept inbound artifacts from local/Docker ──────────────────────
+  pull-from-local:
+    name: Pull — Ingest Local Artifacts
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'repository_dispatch' ||
+      github.event.inputs.direction == 'pull' ||
+      github.event.inputs.direction == 'both'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
+      - name: Validate inbound payload
+        id: validate
+        run: |
+          set -euo pipefail
+
+          # For repository_dispatch events, the payload arrives in
+          # github.event.client_payload.
+          PAYLOAD='${{ toJson(github.event.client_payload) }}'
+
+          if [ "${PAYLOAD}" = "null" ] || [ -z "${PAYLOAD}" ]; then
+            echo "No client payload — skipping inbound artifact ingestion."
+            echo "has_payload=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "Inbound payload detected."
+            echo "${PAYLOAD}" | jq '.' || true
+            echo "has_payload=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Ingest memory update
+        if: steps.validate.outputs.has_payload == 'true'
+        run: |
+          set -euo pipefail
+
+          PAYLOAD='${{ toJson(github.event.client_payload) }}'
+
+          # If the payload contains an updated ACTIVE_MEMORY.md content,
+          # write it to the well-known path.
+          MEMORY_CONTENT=$(echo "${PAYLOAD}" | jq -r '.active_memory // empty')
+          if [ -n "${MEMORY_CONTENT}" ]; then
+            echo "${MEMORY_CONTENT}" > .infinity/ACTIVE_MEMORY.md
+            echo "Updated .infinity/ACTIVE_MEMORY.md from inbound payload."
+          fi
+
+          # If the payload contains a telemetry record, append it.
+          TELEMETRY=$(echo "${PAYLOAD}" | jq -r '.telemetry // empty')
+          if [ -n "${TELEMETRY}" ]; then
+            mkdir -p logs/telemetry
+            TS=$(date -u +"%Y%m%dT%H%M%S")
+            echo "${TELEMETRY}" > "logs/telemetry/local-sync-${TS}.json"
+            echo "Wrote telemetry record: logs/telemetry/local-sync-${TS}.json"
+          fi
+
+      - name: Commit inbound changes
+        if: steps.validate.outputs.has_payload == 'true'
+        run: |
+          set -euo pipefail
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add .infinity/ logs/telemetry/ config/ 2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit from inbound sync."
+          else
+            git commit -m "chore(sync): ingest local/Docker artifacts
+
+          - Source  : local/Docker environment
+          - Trigger : ${{ github.event_name }}
+          - Payload : repository_dispatch/local_sync
+          - Time    : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git push
+            echo "Inbound changes committed and pushed."
+          fi
+
+      - name: Write pull summary
+        run: |
+          echo "## 📥 Pull Sync Summary" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Field | Value |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "|-------|-------|" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Trigger | \`${{ github.event_name }}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Has payload | \`${{ steps.validate.outputs.has_payload }}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "**To send changes from local/Docker to this repo:**" >> "${GITHUB_STEP_SUMMARY}"
+          echo '```bash' >> "${GITHUB_STEP_SUMMARY}"
+          echo '# Push local ACTIVE_MEMORY.md update back to GitHub' >> "${GITHUB_STEP_SUMMARY}"
+          echo 'gh api repos/Infinity-X-One-Systems/infinity-orchestrator/dispatches \' >> "${GITHUB_STEP_SUMMARY}"
+          echo '  -f event_type=local_sync \' >> "${GITHUB_STEP_SUMMARY}"
+          echo '  -f "client_payload[active_memory]=$(cat .infinity/ACTIVE_MEMORY.md)"' >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"

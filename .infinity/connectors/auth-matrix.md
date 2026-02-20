@@ -17,6 +17,7 @@
 | `oauth2-google` | Google OAuth 2.0 service account | 1 hour | `GOOGLE_SERVICE_ACCOUNT_KEY` (JSON) or `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` |
 | `tls-cert` | Mutual TLS client certificate | Certificate validity period | `DOCKER_CERT_PATH`, `DOCKER_TLS_VERIFY=1` |
 | `unix-socket` | Unix domain socket (filesystem permission) | N/A | Docker group membership or `root` |
+| `ecdsa-es256` | ECDSA P-256 (ES256) asymmetric signature (GitHub Copilot Extension events) | N/A (per-request) | None — uses GitHub's published public keys |
 
 ---
 
@@ -91,6 +92,22 @@
 | `gws-drive` | `oauth2-google` | `GOOGLE_SERVICE_ACCOUNT_KEY` | Yes |
 | `gws-calendar` | `oauth2-google` | `GOOGLE_SERVICE_ACCOUNT_KEY` | Yes |
 
+### AI Services (OpenAI & GitHub Copilot)
+
+| Endpoint | Scheme | Secret(s) | Masking Required | Surface |
+|----------|--------|-----------|-----------------|---------|
+| `openai-chat` | `bearer` | `OPENAI_API_KEY` | Yes — mask immediately after retrieval | All |
+| `openai-embeddings` | `bearer` | `OPENAI_API_KEY` | Yes | All |
+| `copilot-chat` | `github-app-token` | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | Yes — mask JWT + IAT | VS Code |
+| `copilot-mobile-chat` | `github-app-token` | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | Yes — mask JWT + IAT | Mobile / GitHub.com |
+| `copilot-models` | `github-app-token` | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | Yes | All |
+| `copilot-extension-event` | `ecdsa-es256` | None — use GitHub public keys from `https://api.github.com/meta/public_keys/copilot_api` | N/A — inbound; verify ECDSA signature | Inbound webhook |
+| `copilot-seats` | `github-app-token` | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | Yes | Management |
+
+> **Mobile-specific note:** When the GitHub Mobile app sends a Copilot Chat request, the `Copilot-Integration-Id` header value is `github.com` (not `vscode-chat`). Use the `copilot-mobile-chat` endpoint entry and its header config from `copilot-connector.json`.
+>
+> **Extension webhook note:** Inbound events from `@infinity-orchestrator` invocations (on any surface, including mobile) arrive at `copilot-extension-event`. Always verify the ECDSA P-256 (ES256) signature using GitHub's published public keys before processing. No shared secret is required. See `.infinity/runbooks/copilot-mobile.md` for the full verification procedure.
+
 ---
 
 ## Token Masking Protocol
@@ -124,6 +141,7 @@ Fields that **must never appear unmasked** in logs:
 | `cloudflare-access` | Every 90 days | ❌ Manual |
 | `oauth2-google` (service account) | Every 90 days or on personnel change | ❌ Manual |
 | `tls-cert` | Before certificate expiry (monitor `notAfter`) | ❌ Manual |
+| `ecdsa-es256` (GitHub public key) | GitHub rotates their signing keys periodically — no action needed | ✅ Auto — GitHub publishes current keys at `/meta/public_keys/copilot_api` |
 
 ---
 
