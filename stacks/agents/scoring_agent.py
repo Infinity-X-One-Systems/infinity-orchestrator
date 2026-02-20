@@ -48,8 +48,8 @@ def _score_signal(signal: dict[str, Any]) -> dict[str, Any]:
     # Market feasibility: logarithmic star count normalised to 0–1
     market_feasibility = min(math.log1p(stars) / math.log1p(10_000), 1.0)
 
-    # Build complexity (lower is better → invert): simpler languages score higher
-    build_complexity_raw = _LANGUAGE_SCORE.get(language, 0.5)
+    # Build simplicity (1 = easy to build): higher-ecosystem languages score higher
+    build_simplicity = _LANGUAGE_SCORE.get(language, 0.5)
 
     # Revenue potential: topics overlap with high-value categories
     topic_overlap = len(set(topics) & _HIGH_VALUE_TOPICS)
@@ -64,7 +64,7 @@ def _score_signal(signal: dict[str, Any]) -> dict[str, Any]:
     # Weighted composite score
     score = (
         market_feasibility * 0.25
-        + build_complexity_raw * 0.20
+        + build_simplicity * 0.20
         + revenue_potential * 0.30
         + risk_profile * 0.10
         + tap_compliance * 0.15
@@ -75,7 +75,7 @@ def _score_signal(signal: dict[str, Any]) -> dict[str, Any]:
         "score": round(score, 4),
         "dimensions": {
             "market_feasibility": round(market_feasibility, 4),
-            "build_complexity": round(build_complexity_raw, 4),
+            "build_simplicity": round(build_simplicity, 4),
             "revenue_potential": round(revenue_potential, 4),
             "risk_profile": round(risk_profile, 4),
             "tap_compliance": tap_compliance,

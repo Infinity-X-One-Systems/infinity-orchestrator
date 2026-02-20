@@ -211,7 +211,7 @@ jobs:
 
           PASSED=$(jq '.passed' /tmp/tap_report.json 2>/dev/null || echo 'false')
           echo "passed=$PASSED" >> $GITHUB_OUTPUT
-          echo "report_path=/tmp/tap_report.json" >> $GITHUB_STEP_SUMMARY
+          echo "report_path=/tmp/tap_report.json" >> $GITHUB_OUTPUT
 
           echo "## TAP Validation Report" >> $GITHUB_STEP_SUMMARY
           jq -r '.checks[] | "- \(if .ok then "✅" else "❌" end) \(.name)"' /tmp/tap_report.json >> $GITHUB_STEP_SUMMARY || true

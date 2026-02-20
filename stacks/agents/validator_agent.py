@@ -36,11 +36,11 @@ class CheckResult(NamedTuple):
 def check_readme(root: Path) -> CheckResult:
     readme = root / "README.md"
     if not readme.exists():
-        return CheckResult("README.md exists", False, "README.md not found")
+        return CheckResult("README.md content", False, "README.md not found")
     content = readme.read_text(encoding="utf-8", errors="replace")
     if len(content.strip()) < 100:
         return CheckResult("README.md content", False, "README.md is too short (<100 chars)")
-    return CheckResult("README.md exists", True, f"{len(content)} bytes")
+    return CheckResult("README.md content", True, f"{len(content)} bytes")
 
 
 def check_security(root: Path) -> CheckResult:
@@ -68,7 +68,7 @@ def check_workflows(root: Path) -> CheckResult:
 
 
 _SECRET_PATTERN = re.compile(
-    r'(?i)(password|api_key|secret|private_key|token)\s*[:=]\s*["\']?[A-Za-z0-9+/]{16,}',
+    r'(?i)(password|api_key|secret|private_key|token)\s*[:=]\s*["\']?[A-Za-z0-9+/\-_.~]{16,}',
 )
 
 
