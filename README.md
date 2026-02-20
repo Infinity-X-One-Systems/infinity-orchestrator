@@ -197,6 +197,31 @@ Edit `config/orchestrator.yml` to customize:
 - Health check thresholds
 - Self-healing behavior
 
+### Singularity Mesh Deployment
+
+```bash
+# One-command full deployment
+.\deploy-singularity.ps1
+
+# Sync repositories only
+.\deploy-singularity.ps1 -Mode sync-only
+
+# Build Docker images
+.\deploy-singularity.ps1 -Mode build-only
+
+# Force rebuild (no cache)
+.\deploy-singularity.ps1 -Force
+
+# Stop all services
+.\deploy-singularity.ps1 -Mode stop
+
+# Check service status
+.\deploy-singularity.ps1 -Mode status
+
+# View logs
+docker-compose -f docker-compose.singularity.yml logs -f
+```
+
 ## 🔧 Customization
 
 ### Adding Custom Build Commands
@@ -256,6 +281,33 @@ MIT License - See [LICENSE](./LICENSE) for details.
 - **Issues**: Create an issue in this repository
 - **Logs**: Check workflow run logs for detailed error information
 
+## 🌌 Singularity Mesh (New!)
+
+**FAANG-grade parallel orchestration via Docker Compose**
+
+The Singularity Mesh is a containerized, parallel deployment system for the entire Infinity ecosystem. One command deploys all intelligence nodes:
+
+```powershell
+.\deploy-singularity.ps1
+```
+
+**Features:**
+- 🐳 **Docker-Native**: All agents containerized (zero Python/Pip issues)
+- ⚡ **Parallel Execution**: All 5+ repos run simultaneously
+- 🕵️ **Shadow Capabilities**: Vision agent with Playwright stealth mode
+- 🧠 **Sovereign Architecture**: Redis cache, ChromaDB, Browserless
+- 🚀 **One-Click Deploy**: Single PowerShell command for the entire fleet
+
+**Services:**
+- `neural-core` - The Brain (infinity-core)
+- `vision-cortex` - The Eyes with stealth (infinity-vision + Playwright)
+- `factory-arm` - The Builder (infinity-factory)
+- `knowledge-base` - The Memory (ChromaDB)
+- `redis-cache` - Synaptic bridge
+- `browserless` - Shadow portal
+
+📖 **Full documentation**: [stacks/README.md](./stacks/README.md)
+
 ## 🗺️ Roadmap
 
 - [x] Core orchestration engine
@@ -264,6 +316,7 @@ MIT License - See [LICENSE](./LICENSE) for details.
 - [x] Health monitoring
 - [x] Self-healing system
 - [x] Security scanning
+- [x] **Singularity Mesh (Docker parallel orchestration)**
 - [ ] Performance analytics dashboard
 - [ ] Cost optimization
 - [ ] Multi-cloud deployment support
