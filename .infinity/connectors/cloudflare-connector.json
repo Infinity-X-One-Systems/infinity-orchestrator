@@ -1,0 +1,126 @@
+{
+  "version": "1.0.0",
+  "id": "cloudflare",
+  "name": "Cloudflare",
+  "description": "Connector for the Cloudflare API. Enables the orchestrator to manage DNS records, deploy Workers and Pages, manage R2 storage, configure Zero Trust, and operate the full Cloudflare account for Infinity X One Systems.",
+  "governed": true,
+  "base_url": "https://api.cloudflare.com/client/v4",
+  "auth_method": "bearer_token",
+  "auth_secret": "CLOUDFLARE_API_TOKEN",
+  "account_id_env": "CLOUDFLARE_ACCOUNT_ID",
+  "zone_id_env": "CLOUDFLARE_ZONE_ID",
+  "auth_alternatives": {
+    "global_api_key": {
+      "description": "Legacy global API key (avoid; use scoped token instead)",
+      "header": "X-Auth-Key",
+      "email_header": "X-Auth-Email",
+      "env_vars": ["CLOUDFLARE_API_KEY", "CLOUDFLARE_EMAIL"]
+    },
+    "api_token": {
+      "description": "Preferred: scoped API token with minimum required permissions",
+      "header": "Authorization",
+      "format": "Bearer {token}",
+      "env_var": "CLOUDFLARE_API_TOKEN"
+    }
+  },
+  "endpoints": {
+    "zones": {
+      "path": "/zones",
+      "method": "GET",
+      "description": "List all zones (domains) in the account"
+    },
+    "dns_records": {
+      "path": "/zones/{zone_id}/dns_records",
+      "method": "GET|POST|PUT|DELETE",
+      "description": "Manage DNS records for a zone"
+    },
+    "workers_deploy": {
+      "path": "/accounts/{account_id}/workers/scripts/{script_name}",
+      "method": "PUT",
+      "description": "Deploy or update a Cloudflare Worker script"
+    },
+    "workers_list": {
+      "path": "/accounts/{account_id}/workers/scripts",
+      "method": "GET",
+      "description": "List all deployed Workers"
+    },
+    "pages_deploy": {
+      "path": "/accounts/{account_id}/pages/projects/{project_name}/deployments",
+      "method": "POST",
+      "description": "Trigger a Cloudflare Pages deployment"
+    },
+    "pages_list": {
+      "path": "/accounts/{account_id}/pages/projects",
+      "method": "GET",
+      "description": "List all Pages projects"
+    },
+    "r2_buckets": {
+      "path": "/accounts/{account_id}/r2/buckets",
+      "method": "GET|POST|DELETE",
+      "description": "Manage R2 object storage buckets"
+    },
+    "r2_objects": {
+      "path": "/accounts/{account_id}/r2/buckets/{bucket_name}/objects",
+      "method": "GET|PUT|DELETE",
+      "description": "Manage objects within an R2 bucket"
+    },
+    "kv_namespaces": {
+      "path": "/accounts/{account_id}/storage/kv/namespaces",
+      "method": "GET|POST|DELETE",
+      "description": "Manage KV namespaces for Workers"
+    },
+    "zero_trust_tunnels": {
+      "path": "/accounts/{account_id}/cfd_tunnel",
+      "method": "GET|POST|DELETE",
+      "description": "Manage Cloudflare Tunnels (Zero Trust / Argo)"
+    },
+    "zero_trust_access": {
+      "path": "/accounts/{account_id}/access/apps",
+      "method": "GET|POST|PUT|DELETE",
+      "description": "Manage Zero Trust Access Applications"
+    },
+    "cache_purge": {
+      "path": "/zones/{zone_id}/purge_cache",
+      "method": "POST",
+      "description": "Purge cached content for a zone"
+    },
+    "firewall_rules": {
+      "path": "/zones/{zone_id}/firewall/rules",
+      "method": "GET|POST|PUT|DELETE",
+      "description": "Manage zone firewall rules"
+    },
+    "account_info": {
+      "path": "/accounts/{account_id}",
+      "method": "GET",
+      "description": "Get account details and limits"
+    }
+  },
+  "guardrail_limits": {
+    "NEVER_delete_zone_autonomously": true,
+    "NEVER_delete_account_autonomously": true,
+    "max_dns_record_changes_per_run": 50,
+    "max_worker_deploys_per_run": 10,
+    "max_r2_bucket_creates_per_run": 5,
+    "cache_purge_requires_log": true
+  },
+  "rate_limits": {
+    "requests_per_minute": 200,
+    "concurrent_requests": 10
+  },
+  "health_check": {
+    "url": "https://api.cloudflare.com/client/v4/user/tokens/verify",
+    "method": "GET",
+    "expected_status": 200
+  },
+  "required_token_permissions": [
+    "Zone:DNS:Edit",
+    "Zone:Zone:Read",
+    "Account:Cloudflare Workers:Edit",
+    "Account:Cloudflare Pages:Edit",
+    "Account:R2 Storage:Edit",
+    "Account:Cloudflare Tunnel:Edit",
+    "Account:Zero Trust:Edit",
+    "Account:Account Settings:Read"
+  ],
+  "tags": ["cloudflare", "dns", "workers", "pages", "r2", "cdn", "zero-trust"]
+}

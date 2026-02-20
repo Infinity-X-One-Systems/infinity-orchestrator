@@ -271,3 +271,80 @@ advanced:
     ai_failure_prediction: false
     cost_optimization: false
     advanced_analytics: false
+
+# Connector Settings
+connectors:
+  # Connector registry and policy
+  registry: ".infinity/connectors/endpoint-registry.json"
+  auth_matrix: ".infinity/connectors/auth-matrix.md"
+  connectors_index: ".infinity/connectors/connectors-index.md"
+
+  # OpenAI / ChatGPT
+  openai:
+    enabled: true
+    config: ".infinity/connectors/openai-connector.json"
+    secret: "OPENAI_API_KEY"
+    default_model: "gpt-4o"
+    max_tokens_per_run: 100000
+    max_cost_per_run_usd: 5.00
+
+  # GitHub Copilot
+  copilot:
+    enabled: true
+    config: ".infinity/connectors/copilot-connector.json"
+    extension_slug: "@infinity-orchestrator"
+    mobile_enabled: true
+
+  # Cloudflare
+  cloudflare:
+    enabled: true
+    config: ".infinity/connectors/cloudflare-connector.json"
+    token_secret: "CLOUDFLARE_API_TOKEN"
+    account_id_secret: "CLOUDFLARE_ACCOUNT_ID"
+    zone_id_secret: "CLOUDFLARE_ZONE_ID"
+
+  # VS Code / Codespaces
+  vscode:
+    enabled: true
+    config: ".infinity/connectors/vscode-connector.json"
+    tunnel_name: "infinity-orchestrator"
+    tunnel_secret: "VSCODE_TUNNEL_TOKEN"
+    codespace_auto_create: false
+
+# Sync Settings
+sync:
+  # Bidirectional local + Docker sync
+  workflow: ".github/workflows/local-docker-sync.yml"
+  interval: "*/30 * * * *"  # Every 30 minutes
+  retention_days: 3
+
+  # Paths included in sync packages
+  sync_paths:
+    - ".infinity/"
+    - "config/orchestrator.yml"
+    - "config/repositories.json"
+    - "scripts/"
+
+  # Inbound dispatch event type (from local/Docker)
+  inbound_event_type: "local_sync"
+
+# Runner Settings
+runners:
+  # Self-hosted runner setup runbook
+  runbook: ".infinity/runbooks/runners.md"
+
+  # Recommended labels for self-hosted runners
+  recommended_labels:
+    - "self-hosted"
+    - "linux"
+    - "x64"
+    - "infinity-orchestrator"
+    - "docker"
+    - "cloudflare"
+
+  # Registration scope (organization-level is required for cross-repo ops)
+  registration_scope: "organization"
+  organization: "Infinity-X-One-Systems"
+
+  # Runner group
+  group: "infinity-orchestrator"
