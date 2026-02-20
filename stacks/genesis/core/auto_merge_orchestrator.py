@@ -29,7 +29,7 @@ class AutoMergeOrchestrator:
     
     def __init__(self, repo_path: str = None):
         if repo_path is None:
-            repo_path = os.environ.get("GENESIS_REPO_PATH", str(Path(__file__).parent.parent.parent.parent))
+            repo_path = os.environ.get("GENESIS_REPO_PATH", str(Path.cwd()))
         self.manager = BranchManager(repo_path)
         self.repo_path = Path(repo_path)
         self.results = {

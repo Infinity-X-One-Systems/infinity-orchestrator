@@ -30,6 +30,10 @@ permissions:
   actions: read
   checks: read
 
+# Expose stacks/ as the Python package root so `import genesis.core.xxx` works
+env:
+  PYTHONPATH: ${{ github.workspace }}/stacks
+
 jobs:
   analyze-workflows:
     name: 📊 Analyze Workflows
@@ -147,8 +151,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config --global user.name "Genesis DevOps Bot"
-          git config --global user.email "devops-bot@infinityxonesystems.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run Auto Healer
         env:

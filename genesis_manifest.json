@@ -31,7 +31,7 @@
     "loop_interval_hours": 6,
     "max_tasks_per_cycle": 5,
     "quality_threshold": 0.8,
-    "org_name": "Infinity-X-One-Systems"
+    "org_name": "InfinityXOneSystems"
   },
   "system_health": {
     "overall_status": "healthy",

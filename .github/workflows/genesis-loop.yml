@@ -25,6 +25,10 @@ permissions:
   pull-requests: write
   issues: write
 
+# Expose stacks/ as the Python package root so `import genesis.core.xxx` works
+env:
+  PYTHONPATH: ${{ github.workspace }}/stacks
+
 jobs:
   plan:
     name: 🧠 Plan Phase
@@ -88,8 +92,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config --global user.name "Genesis Bot"
-          git config --global user.email "genesis-bot@infinityxonesystems.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Execute Code Phase
         env:
@@ -225,8 +229,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config --global user.name "Genesis Bot"
-          git config --global user.email "genesis-bot@infinityxonesystems.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Execute Heal Phase
         env:
