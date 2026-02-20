@@ -92,7 +92,6 @@ infinity-orchestrator/
 │       └── Sync-MemoryToOrchestrator.ps1
 │
 ├── .github/
-│   ├── app-manifest.json       ← GitHub App manifest (max permissions)
 │   └── workflows/
 │       ├── autonomous-invention.yml   ← 6-phase autonomous engine
 │       ├── genesis-loop.yml           ← Genesis autonomous loop
