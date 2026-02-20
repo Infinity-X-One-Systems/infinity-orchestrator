@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
   issues: write
-  actions: read
+  actions: write
 
 jobs:
   health-check:
