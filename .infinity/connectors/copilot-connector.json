@@ -1,0 +1,63 @@
+{
+  "version": "1.0.0",
+  "id": "github-copilot",
+  "name": "GitHub Copilot",
+  "description": "Connector for the GitHub Copilot API and Copilot Mobile. Enables the orchestrator to invoke Copilot Chat completions, access Copilot Extensions, and integrate with Copilot on mobile devices for on-the-go orchestrator control.",
+  "governed": true,
+  "base_url": "https://api.githubcopilot.com",
+  "auth_method": "github_app",
+  "auth_fallback": "github_token",
+  "auth_secret": "GITHUB_TOKEN",
+  "endpoints": {
+    "chat_completions": {
+      "path": "/chat/completions",
+      "method": "POST",
+      "description": "Copilot Chat completions — same interface as OpenAI chat completions",
+      "headers": {
+        "_comment": "These header values are examples; update to match your actual VS Code / GitHub Copilot version.",
+        "Copilot-Integration-Id": "vscode-chat",
+        "Editor-Version": "vscode/1.95.0",
+        "Editor-Plugin-Version": "copilot-chat/0.21.0"
+      }
+    },
+    "models": {
+      "path": "/models",
+      "method": "GET",
+      "description": "List Copilot-available models"
+    }
+  },
+  "copilot_extensions": {
+    "description": "Copilot Extensions allow the orchestrator to appear as a @infinity agent in Copilot Chat (GitHub.com, VS Code, mobile)",
+    "agent_slug": "@infinity-orchestrator",
+    "extension_type": "copilot_extension",
+    "capabilities": [
+      "chat",
+      "code_completion",
+      "workflow_trigger",
+      "repository_context"
+    ],
+    "manifest_url": "https://github.com/Infinity-X-One-Systems/infinity-orchestrator"
+  },
+  "mobile_access": {
+    "description": "GitHub Copilot Mobile (iOS and Android) can access the orchestrator via @infinity-orchestrator mentions in Copilot Chat",
+    "platforms": ["ios", "android"],
+    "capabilities": [
+      "trigger autonomous invention cycle",
+      "query ACTIVE_MEMORY.md",
+      "check workflow status",
+      "view health dashboard",
+      "create issues and PRs"
+    ],
+    "auth": "GitHub App token via mobile Copilot session"
+  },
+  "rate_limits": {
+    "requests_per_minute": 100,
+    "tokens_per_minute": 200000
+  },
+  "health_check": {
+    "url": "https://api.githubcopilot.com/models",
+    "method": "GET",
+    "expected_status": 200
+  },
+  "tags": ["ai", "copilot", "github-copilot", "mobile", "chat", "extensions"]
+}

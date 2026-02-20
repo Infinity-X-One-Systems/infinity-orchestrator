@@ -78,6 +78,50 @@
       "refresh_workflow": ".github/workflows/org-repo-index.yml",
       "governed": true,
       "tags": ["index", "discovery", "org"]
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI / ChatGPT",
+      "description": "OpenAI API for GPT-4o, o3, embeddings, and assistants. Used by autonomous agents for inference, scoring, and documentation generation.",
+      "base_url": "https://api.openai.com/v1",
+      "auth_method": "bearer_token",
+      "auth_secret": "OPENAI_API_KEY",
+      "connector_config": ".infinity/connectors/openai-connector.json",
+      "governed": true,
+      "tags": ["ai", "llm", "openai", "chatgpt"]
+    },
+    {
+      "id": "github-copilot",
+      "name": "GitHub Copilot",
+      "description": "GitHub Copilot Chat API and Copilot Mobile integration. Enables @infinity-orchestrator as a Copilot Extension.",
+      "base_url": "https://api.githubcopilot.com",
+      "auth_method": "github_app",
+      "auth_fallback": "github_token",
+      "connector_config": ".infinity/connectors/copilot-connector.json",
+      "governed": true,
+      "tags": ["ai", "copilot", "github-copilot", "mobile"]
+    },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "description": "Cloudflare API for DNS, Workers, Pages, R2, KV, and Zero Trust management.",
+      "base_url": "https://api.cloudflare.com/client/v4",
+      "auth_method": "bearer_token",
+      "auth_secret": "CLOUDFLARE_API_TOKEN",
+      "connector_config": ".infinity/connectors/cloudflare-connector.json",
+      "governed": true,
+      "tags": ["cloudflare", "dns", "workers", "cdn"]
+    },
+    {
+      "id": "vscode-codespaces",
+      "name": "VS Code / GitHub Codespaces",
+      "description": "GitHub Codespaces API and VS Code tunnel integration for remote development and bidirectional local sync.",
+      "base_url": "https://api.github.com",
+      "auth_method": "github_app",
+      "auth_fallback": "github_token",
+      "connector_config": ".infinity/connectors/vscode-connector.json",
+      "governed": true,
+      "tags": ["vscode", "codespaces", "remote-dev"]
     }
   ]
 }
