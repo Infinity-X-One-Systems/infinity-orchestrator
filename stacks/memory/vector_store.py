@@ -80,7 +80,14 @@ def _tfidf_embed(text: str, vocab: dict[str, int] | None = None) -> dict[str, fl
     total = len(tokens)
     tf = {term: count / total for term, count in counts.items()}
     # Without a corpus IDF we use log(1 + 1/tf) as a proxy for inverse frequency
-    return {term: tf_val * math.log1p(1.0 / tf_val) for term, tf_val in tf.items()}
+    tfidf = {term: tf_val * math.log1p(1.0 / tf_val) for term, tf_val in tf.items()}
+    # Keep only the top-N TF-IDF terms per document to maintain a compact vector
+    if len(tfidf) > _TFIDF_TOP_TERMS:
+        top_items = sorted(tfidf.items(), key=lambda item: item[1], reverse=True)[
+            :_TFIDF_TOP_TERMS
+        ]
+        return {term: weight for term, weight in top_items}
+    return tfidf
 
 
 def _cosine_sparse(a: dict[str, float], b: dict[str, float]) -> float:
