@@ -305,7 +305,7 @@ jobs:
       
       - name: Update health alert
         if: github.event.inputs.triggered_by == 'health-monitor'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             // Find the health alert issue
