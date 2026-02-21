@@ -68,6 +68,12 @@ jobs:
           fetch-depth: 1
 
       - name: Run memory sync script
+        # P-007: Degrade gracefully when App credentials are absent.
+        # The script validates GITHUB_APP_ID itself and exits non-zero; we
+        # catch that here so the scheduled run does not spam failure alerts
+        # when secrets have not yet been provisioned.
+        continue-on-error: true
+        id: sync_script
         shell: pwsh
         env:
           GITHUB_APP_ID:             ${{ secrets.GITHUB_APP_ID }}
@@ -92,7 +98,11 @@ jobs:
           echo "| Trigger | \`${{ github.event_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Source ref | \`${{ env.MEMORY_REPO_REF || 'main' }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Run time | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Sync script outcome | \`${{ steps.sync_script.outcome }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.sync_script.outcome }}" = "failure" ]; then
+            echo "⚠️ **Memory sync skipped** — GitHub App credentials (GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY) are not configured. Configure the secrets to enable cross-repo memory pull. Graceful degradation active per P-007." >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ -f ".infinity/ACTIVE_MEMORY.md" ]; then
             LINES=$(wc -l < .infinity/ACTIVE_MEMORY.md)
             echo "**ACTIVE_MEMORY.md**: present ($LINES lines)" >> "$GITHUB_STEP_SUMMARY"

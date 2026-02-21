@@ -1,0 +1,33 @@
+# CODEOWNERS — Infinity Orchestrator
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Each line is a file pattern followed by one or more owners.
+# Owners are notified when a PR modifies matching files.
+# Order matters — the last matching rule takes precedence.
+
+# ── Global default (catch-all) ────────────────────────────────────────────────
+*                                @InfinityXOneSystems
+
+# ── Governance & Policies ────────────────────────────────────────────────────
+/governance/                     @InfinityXOneSystems
+/.infinity/policies/             @InfinityXOneSystems
+/.infinity/runbooks/             @InfinityXOneSystems
+/SECURITY.md                     @InfinityXOneSystems
+
+# ── Connector Registry ────────────────────────────────────────────────────────
+/.infinity/connectors/           @InfinityXOneSystems
+/config/github-app-manifest.json @InfinityXOneSystems
+
+# ── Core Agent Logic ──────────────────────────────────────────────────────────
+/stacks/agents/                  @InfinityXOneSystems
+/stacks/memory/                  @InfinityXOneSystems
+/stacks/core/                    @InfinityXOneSystems
+/stacks/genesis/                 @InfinityXOneSystems
+
+# ── CI/CD Workflows ───────────────────────────────────────────────────────────
+/.github/workflows/              @InfinityXOneSystems
+
+# ── Infrastructure ────────────────────────────────────────────────────────────
+/docker-compose.singularity.yml  @InfinityXOneSystems
+/docker/                         @InfinityXOneSystems
+/infra/                          @InfinityXOneSystems

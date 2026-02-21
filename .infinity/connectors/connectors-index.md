@@ -19,6 +19,10 @@ external system.
 | **GitHub Copilot** | `github-copilot` | `copilot-connector.json` | GitHub App | ✅ Active |
 | **Cloudflare** | `cloudflare` | `cloudflare-connector.json` | Bearer Token | ✅ Active |
 | **VS Code / Codespaces** | `vscode-codespaces` | `vscode-connector.json` | GitHub App | ✅ Active |
+| **Ollama (local LLM)** | `ollama` | `ollama-connector.json` | None (local) | ✅ Active |
+| **Groq (cloud LLM)** | `groq` | `groq-connector.json` | Bearer Token | ✅ Active |
+| **Google Gemini** | `gemini` | `gemini-connector.json` | API Key | ✅ Active |
+| **Open WebUI (gateway)** | `openwebui` | `openwebui-connector.json` | Bearer Token | ✅ Active |
 
 All connectors are registered in `endpoint-registry.json` and governed by
 `auth-matrix.md`.
@@ -73,6 +77,31 @@ All connectors are registered in `endpoint-registry.json` and governed by
 
 > 📖 Full setup guide: `.infinity/runbooks/copilot-mobile.md`
 
+### Ollama — Local LLM Runtime
+- **Purpose**: Local open-source LLM inference (Llama 3.2, Mistral, Gemma, Phi-4) with zero API cost. Also provides `nomic-embed-text` embeddings for the vector store.
+- **Auth**: None (local). For remote instances, set `OLLAMA_AUTH_TOKEN`.
+- **Endpoint**: `http://localhost:11434` (configurable via `OLLAMA_BASE_URL`).
+- **Docker**: `ollama` service in `docker-compose.singularity.yml`.
+- **Docs**: `ollama-connector.json`
+
+### Groq — Ultra-Fast Cloud LLM
+- **Purpose**: Cloud LLM inference via Groq LPU hardware. Lowest latency for Llama 3.3 70B, Mixtral, Gemma2. OpenAI-compatible API.
+- **Auth**: `GROQ_API_KEY` (Bearer token).
+- **Endpoint**: `https://api.groq.com/openai/v1`
+- **Docs**: `groq-connector.json`
+
+### Google Gemini
+- **Purpose**: Multimodal LLM inference (text, code, images), long-context reasoning, and text embeddings via `text-embedding-004`.
+- **Auth**: `GEMINI_API_KEY` (query parameter).
+- **Endpoint**: `https://generativelanguage.googleapis.com/v1beta`
+- **Docs**: `gemini-connector.json`
+
+### Open WebUI — Unified LLM Gateway
+- **Purpose**: Browser-based UI + OpenAI-compatible REST gateway that routes to Ollama, OpenAI, Groq, and other backends. Running at `http://localhost:8090`.
+- **Auth**: `OPENWEBUI_API_KEY` (Bearer token — generate in Settings → API Keys).
+- **Docker**: Image `ghcr.io/open-webui/open-webui:main` on port 8090.
+- **Docs**: `openwebui-connector.json`
+
 ### Cloudflare
 - **Purpose**: DNS management, Workers deployment, Pages CI/CD, R2 storage,
   KV namespaces, Zero Trust tunnels.
@@ -94,7 +123,10 @@ All connectors are registered in `endpoint-registry.json` and governed by
 |--------|---------|---------|
 | `GITHUB_APP_ID` | GitHub API, Copilot, Codespaces | ✅ |
 | `GITHUB_APP_PRIVATE_KEY` | GitHub API, Copilot, Codespaces | ✅ |
-| `OPENAI_API_KEY` | OpenAI connector | ✅ for AI features |
+| `OPENAI_API_KEY` | OpenAI connector | ✅ for OpenAI features |
+| `GROQ_API_KEY` | Groq connector | ⚙️ for Groq LLM |
+| `GEMINI_API_KEY` | Gemini connector | ⚙️ for Google Gemini |
+| `OPENWEBUI_API_KEY` | Open WebUI connector | ⚙️ for WebUI API access |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare connector | ✅ for CF ops |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare connector | ✅ for CF ops |
 | `CLOUDFLARE_ZONE_ID` | Cloudflare DNS operations | ⚙️ per-zone ops |

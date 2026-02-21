@@ -1,0 +1,75 @@
+{
+  "connector_id": "gemini",
+  "name": "Google Gemini — Multimodal AI",
+  "version": "1.0.0",
+  "description": "Connector for Google Gemini API (Generative Language API). Provides access to Gemini 2.0 Flash, 1.5 Pro, and embedding models. Supports text, code, images, and long-context tasks.",
+  "status": "active",
+  "auth": {
+    "type": "api_key_query_param",
+    "secret_env": "GEMINI_API_KEY",
+    "query_param": "key",
+    "notes": "Obtain API key from aistudio.google.com. Add ?key={GEMINI_API_KEY} to all requests."
+  },
+  "base_url": "https://generativelanguage.googleapis.com/v1beta",
+  "endpoints": {
+    "generate_content": {
+      "path": "/models/{model}:generateContent",
+      "method": "POST",
+      "description": "Text generation and multimodal inference.",
+      "body_schema": {
+        "contents": "array of {parts: [{text: string}]}",
+        "generationConfig": {
+          "maxOutputTokens": "integer",
+          "temperature": "float 0–2",
+          "topP": "float",
+          "topK": "integer"
+        },
+        "systemInstruction": "optional {parts: [{text: string}]}"
+      },
+      "env_model": "GEMINI_MODEL",
+      "default_model": "gemini-2.0-flash"
+    },
+    "stream_generate": {
+      "path": "/models/{model}:streamGenerateContent",
+      "method": "POST",
+      "description": "Streaming text generation.",
+      "body_schema": {
+        "contents": "array of {parts: [{text: string}]}"
+      }
+    },
+    "embed_content": {
+      "path": "/models/{model}:embedContent",
+      "method": "POST",
+      "description": "Generate text embeddings for vector store.",
+      "body_schema": {
+        "content": "{parts: [{text: string}]}",
+        "taskType": "RETRIEVAL_DOCUMENT | RETRIEVAL_QUERY | SEMANTIC_SIMILARITY"
+      },
+      "default_model": "text-embedding-004"
+    },
+    "list_models": {
+      "path": "/models",
+      "method": "GET",
+      "description": "List available Gemini models."
+    }
+  },
+  "recommended_models": {
+    "fast": ["gemini-2.0-flash", "gemini-1.5-flash"],
+    "high_quality": ["gemini-1.5-pro"],
+    "embeddings": ["text-embedding-004"]
+  },
+  "rate_limits": {
+    "gemini-2.0-flash": {
+      "requests_per_minute": 15,
+      "tokens_per_minute": 1000000
+    },
+    "notes": "Free tier; upgrade via Google Cloud for higher limits."
+  },
+  "tags": ["llm", "cloud", "google", "multimodal", "embeddings", "gemini"],
+  "governance": {
+    "tap_compliant": true,
+    "p001_no_secrets": true,
+    "p007_graceful_degradation": true,
+    "notes": "API key stored as GitHub Actions secret GEMINI_API_KEY. Never commit to repository. Review Google AI terms for data handling."
+  }
+}
