@@ -48,7 +48,7 @@ jobs:
     steps:
       - name: Evaluate policy toggles and TAP record
         id: gate
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const automergeEnabled = (process.env.INFINITY_AUTOMERGE_ENABLED ?? 'true') !== 'false';
@@ -105,7 +105,7 @@ jobs:
 
       - name: Check PR status and CI checks
         id: pr-status
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { data: pr } = await github.rest.pulls.get({
@@ -176,7 +176,7 @@ jobs:
 
       - name: Merge PR
         if: steps.pr-status.outputs.result == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const riskLevel = '${{ needs.policy-gate.outputs.risk_level }}';
@@ -249,7 +249,7 @@ jobs:
 
     steps:
       - name: Comment quarantine status on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             await github.rest.issues.createComment({
@@ -275,7 +275,7 @@ jobs:
 
     steps:
       - name: Report Status
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const mergeResult = '${{ needs.auto-merge.result }}';
