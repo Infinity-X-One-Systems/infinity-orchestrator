@@ -250,32 +250,50 @@ jobs:
         if: failure() && steps.discover.outputs.discover_error == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          # Check if a recent open issue with this title already exists to avoid duplicates
+          set -euo pipefail
+
+          # Check if a recent open issue already exists to avoid duplicates
           EXISTING=$(gh issue list \
             --repo "Infinity-X-One-Systems/infinity-orchestrator" \
             --label "orchestrator:alert" \
             --state open \
             --search "Org Repo Index discovery failed" \
             --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
           if [ -n "$EXISTING" ]; then
             echo "Diagnostic issue #$EXISTING already open — adding comment."
             gh issue comment "$EXISTING" \
               --repo "Infinity-X-One-Systems/infinity-orchestrator" \
-              --body "$(printf '🔁 **Recurring failure** on run [%s](%s/actions/runs/%s) at %s.\n\nSee workflow logs for details.' \
-                "${{ github.run_id }}" \
-                "${{ github.event.repository.html_url }}" \
-                "${{ github.run_id }}" \
-                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")")"
+              --body "🔁 **Recurring failure** on [run ${RUN_ID}](${RUN_URL}) at ${TIMESTAMP}. See workflow logs for details."
           else
+            # Write issue body to a temp file to avoid YAML/shell quoting issues
+            BODY_FILE=$(mktemp)
+            {
+              printf '## Org Repo Index Discovery Failure\n\n'
+              printf 'The `org-repo-index` workflow failed to list repositories for the `Infinity-X-One-Systems` org.\n\n'
+              printf '**Run:** [Run %s](%s)\n' "$RUN_ID" "$RUN_URL"
+              printf '**Trigger:** `%s`\n' "$EVENT_NAME"
+              printf '**Timestamp:** `%s`\n\n' "$TIMESTAMP"
+              printf '## Likely Causes\n\n'
+              printf '1. **INFINITY_APP_TOKEN not set** — Add a GitHub App installation token secret named `INFINITY_APP_TOKEN` with `org:read` scope.\n'
+              printf '2. **GITHUB_TOKEN scope** — The default token may not have org-wide read access. Use a GitHub App installation token (P-005).\n'
+              printf '3. **App not installed org-wide** — Ensure the `infinity-orchestrator-app` GitHub App is installed on all org repositories.\n\n'
+              printf '## Resolution\n\n'
+              printf '- Set `INFINITY_APP_TOKEN` secret with a valid GitHub App installation token.\n'
+              printf '- Verify the token has **Read access to members** and **Read access to metadata**.\n'
+              printf '- Re-run this workflow after fixing permissions.\n\n'
+              printf '---\n*Auto-created by org-repo-index workflow — TAP P-001 compliant (no secrets in body)*\n'
+            } > "$BODY_FILE"
             gh issue create \
               --repo "Infinity-X-One-Systems/infinity-orchestrator" \
               --title "🚨 Org Repo Index discovery failed — check GitHub App permissions" \
               --label "orchestrator:alert,priority:high" \
-              --body "$(printf '## Org Repo Index Discovery Failure\n\nThe \`org-repo-index\` workflow failed to list repositories for the \`Infinity-X-One-Systems\` org.\n\n**Run:** [%s](%s/actions/runs/%s)\n**Trigger:** %s\n**Timestamp:** %s\n\n## Likely Causes\n\n1. **INFINITY_APP_TOKEN not set**: Add a GitHub App installation token as a repository secret named `INFINITY_APP_TOKEN` with `org:read` scope.\n2. **GITHUB_TOKEN scope**: The default `GITHUB_TOKEN` may not have org-wide read access. Use a GitHub App installation token (P-005).\n3. **App not installed org-wide**: Ensure the `infinity-orchestrator-app` GitHub App is installed on all org repositories.\n\n## Resolution\n\n- Set `INFINITY_APP_TOKEN` secret in repository settings with a valid GitHub App installation token\n- Verify the token has `Read access to members` and `Read access to metadata` permissions\n- Re-run this workflow after fixing permissions\n\n---\n*Auto-created by org-repo-index workflow — TAP P-001 compliant (no secrets in body)*' \
-                "${{ github.run_id }}" \
-                "${{ github.event.repository.html_url }}" \
-                "${{ github.run_id }}" \
-                "${{ github.event_name }}" \
-                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")")"
+              --body-file "$BODY_FILE"
+            rm -f "$BODY_FILE"
           fi

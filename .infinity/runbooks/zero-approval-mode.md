@@ -111,15 +111,17 @@ Every autonomously-opened PR must include a TAP decision record in the PR body:
 ```markdown
 ## TAP Decision
 
-<!-- TAP-DECISION: {"actor":"github-actions[bot]","risk":"low","policies":["P-001","P-003","P-005","G-08"],"decision":"allowed","correlation_id":"RUN_ID-1","justification":"Low-risk chore change within scope of autonomous operation."} -->
+<!-- TAP-DECISION: {"actor":"github-actions[bot]","risk":"low","policies":["P-001","P-003","P-005","G-08"],"decision":"allowed","correlation_id":"<RUN_ID>-<ATTEMPT>","justification":"Low-risk chore change within scope of autonomous operation."} -->
 
 | Field | Value |
 |-------|-------|
 | Risk | low |
 | Policies checked | P-001, P-003, P-005, G-08 |
 | Decision | allowed |
-| Correlation ID | `RUN_ID-1` |
+| Correlation ID | `<RUN_ID>-<ATTEMPT>` |
 ```
+
+Replace `<RUN_ID>` with `$GITHUB_RUN_ID` and `<ATTEMPT>` with `$GITHUB_RUN_ATTEMPT` at generation time.
 
 ---
 
