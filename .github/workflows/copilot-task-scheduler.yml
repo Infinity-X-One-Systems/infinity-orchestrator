@@ -100,7 +100,7 @@ jobs:
           echo "- **Top task**: $TOP_TASK" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload triage result
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: triage-result-${{ github.run_id }}
           path: /tmp/triage_result.json
