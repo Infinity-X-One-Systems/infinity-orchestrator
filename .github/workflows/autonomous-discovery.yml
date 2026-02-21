@@ -128,7 +128,7 @@ jobs:
             || echo "No tests found or tests exited with warnings — continuing."
 
       - name: Upload Coverage Report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-${{ matrix.component }}-${{ github.run_id }}
           path: coverage-${{ matrix.component }}.xml
@@ -238,7 +238,7 @@ jobs:
           fi
 
       - name: Upload Simulation Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: simulation-report-${{ github.run_id }}
           path: simulation/reports/
@@ -303,7 +303,7 @@ jobs:
             });
 
       - name: Upload TAP report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: tap-report-${{ github.run_id }}
           path: /tmp/tap_report.json

@@ -80,7 +80,7 @@ jobs:
           echo "Discovery complete: $IDEAS signals indexed" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload discovery index
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: discovery-index-${{ github.run_id }}
           path: /tmp/discovery_index.json
@@ -134,7 +134,7 @@ jobs:
           echo "- Above threshold (≥0.6): $TOP" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload scorecard
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: idea-scorecard-${{ github.run_id }}
           path: /tmp/idea_scorecard.json
@@ -230,7 +230,7 @@ jobs:
             });
 
       - name: Upload TAP report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: tap-report-${{ github.run_id }}
           path: /tmp/tap_report.json

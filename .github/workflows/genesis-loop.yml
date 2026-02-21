@@ -57,7 +57,7 @@ jobs:
         run: python stacks/genesis/core/loop.py plan
 
       - name: Upload plan artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: genesis-plan
           path: genesis_manifest.json
@@ -102,7 +102,7 @@ jobs:
         run: python stacks/genesis/core/loop.py code
 
       - name: Upload code artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: genesis-code
           path: |
@@ -152,7 +152,7 @@ jobs:
         run: python stacks/genesis/core/loop.py validate
 
       - name: Upload validation results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: genesis-validation
           path: |
@@ -192,7 +192,7 @@ jobs:
         run: python stacks/genesis/core/loop.py diagnose
 
       - name: Upload diagnostic results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: genesis-diagnostics
           path: |
@@ -239,7 +239,7 @@ jobs:
         run: python stacks/genesis/core/loop.py heal
 
       - name: Upload healing results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: genesis-healing
           path: |
@@ -279,7 +279,7 @@ jobs:
         run: python stacks/genesis/core/loop.py deploy
 
       - name: Update System Manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: genesis-manifest-final
           path: genesis_manifest.json
