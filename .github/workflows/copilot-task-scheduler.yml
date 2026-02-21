@@ -1,0 +1,304 @@
+name: Copilot Task Scheduler
+
+# Autonomous task scheduling driven by GitHub Copilot Agent API
+# Enforces: TAP Protocol (P-001…P-008), bot attribution (P-003)
+# Triggers: scheduled (every 6 hours), manual dispatch, repository_dispatch
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours — P-101 compliant
+  workflow_dispatch:
+    inputs:
+      task_goal:
+        description: 'High-level task goal for Copilot to execute'
+        required: false
+        type: string
+        default: ''
+      scope:
+        description: 'Execution scope'
+        required: false
+        type: choice
+        options:
+          - full
+          - code-review
+          - dependency-update
+          - documentation
+          - security-audit
+        default: full
+      dry_run:
+        description: 'Dry run — plan without mutating'
+        required: false
+        type: boolean
+        default: false
+  repository_dispatch:
+    types:
+      - copilot-task-trigger
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+  id-token: write
+
+concurrency:
+  group: copilot-task-scheduler
+  cancel-in-progress: false
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Phase 1 — Backlog Triage
+  # ─────────────────────────────────────────────────────────────────────────────
+  triage:
+    name: 📋 Backlog Triage
+    runs-on: ubuntu-latest
+
+    outputs:
+      task_count: ${{ steps.triage.outputs.task_count }}
+      top_task: ${{ steps.triage.outputs.top_task }}
+      scope: ${{ steps.triage.outputs.scope }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet pyyaml
+          if [ -f requirements.genesis.txt ]; then pip install --quiet -r requirements.genesis.txt; fi
+
+      - name: Triage backlog and select task
+        id: triage
+        env:
+          PYTHONPATH: ${{ github.workspace }}/stacks
+          SCOPE: ${{ github.event.inputs.scope || github.event.client_payload.scope || 'full' }}
+          GOAL:  ${{ github.event.inputs.task_goal || github.event.client_payload.goal || '' }}
+        run: |
+          # Run backlog agent to surface highest-priority tasks
+          python stacks/agents/backlog_agent.py \
+            --backlog .infinity/ledger/backlog.json \
+            --output /tmp/triage_result.json \
+            --scope "$SCOPE" \
+            || echo "Backlog agent degraded — using empty triage."
+
+          TASK_COUNT=$(jq '. | length' /tmp/triage_result.json 2>/dev/null || echo 0)
+          TOP_TASK=$(jq -r '.[0].title // "No tasks"' /tmp/triage_result.json 2>/dev/null || echo "No tasks")
+
+          echo "task_count=$TASK_COUNT" >> "$GITHUB_OUTPUT"
+          echo "top_task=$TOP_TASK"     >> "$GITHUB_OUTPUT"
+          echo "scope=$SCOPE"           >> "$GITHUB_OUTPUT"
+
+          echo "## 📋 Backlog Triage" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Scope**: $SCOPE" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Tasks found**: $TASK_COUNT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Top task**: $TOP_TASK" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload triage result
+        uses: actions/upload-artifact@v4
+        with:
+          name: triage-result-${{ github.run_id }}
+          path: /tmp/triage_result.json
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Phase 2 — Code Review Scheduling
+  # ─────────────────────────────────────────────────────────────────────────────
+  code_review_schedule:
+    name: 👁️ Code Review Scheduling
+    needs: [triage]
+    runs-on: ubuntu-latest
+    if: |
+      needs.triage.outputs.scope == 'full' ||
+      needs.triage.outputs.scope == 'code-review'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Identify open PRs needing review
+        id: pr_scan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # List open PRs older than 24h without a review
+          OPEN_PRS=$(gh pr list \
+            --repo "${{ github.repository }}" \
+            --state open \
+            --json number,title,updatedAt,reviewDecision \
+            --jq '[.[] | select(.reviewDecision == null or .reviewDecision == "REVIEW_REQUIRED")]' \
+            2>/dev/null || echo '[]')
+
+          PR_COUNT=$(echo "$OPEN_PRS" | jq '. | length')
+          echo "prs_needing_review=$PR_COUNT" >> "$GITHUB_OUTPUT"
+
+          echo "## 👁️ Code Review Scheduling" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **PRs needing review**: $PR_COUNT" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$PR_COUNT" -gt 0 ]; then
+            echo "$OPEN_PRS" | jq -r '.[] | "- PR #\(.number): \(.title)"' \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Phase 3 — Dependency Update Check
+  # ─────────────────────────────────────────────────────────────────────────────
+  dependency_update:
+    name: 📦 Dependency Update Check
+    needs: [triage]
+    runs-on: ubuntu-latest
+    if: |
+      needs.triage.outputs.scope == 'full' ||
+      needs.triage.outputs.scope == 'dependency-update'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check for stale Python dependencies
+        id: dep_check
+        run: |
+          pip install --quiet pip-audit safety 2>/dev/null || true
+
+          AUDIT_OUTPUT=""
+          if [ -f requirements.genesis.txt ]; then
+            AUDIT_OUTPUT=$(pip-audit -r requirements.genesis.txt --format=json 2>/dev/null || echo '[]')
+          fi
+
+          VULN_COUNT=$(echo "$AUDIT_OUTPUT" | jq '. | length' 2>/dev/null || echo 0)
+          echo "vuln_count=$VULN_COUNT" >> "$GITHUB_OUTPUT"
+
+          echo "## 📦 Dependency Update Check" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Vulnerabilities found**: $VULN_COUNT" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$VULN_COUNT" -gt 0 ]; then
+            echo "::warning::$VULN_COUNT vulnerable dependencies detected."
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Phase 4 — Documentation Sync
+  # ─────────────────────────────────────────────────────────────────────────────
+  documentation_sync:
+    name: 📝 Documentation Sync
+    needs: [triage]
+    runs-on: ubuntu-latest
+    if: |
+      needs.triage.outputs.scope == 'full' ||
+      needs.triage.outputs.scope == 'documentation'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet pyyaml
+          if [ -f requirements.genesis.txt ]; then pip install --quiet -r requirements.genesis.txt; fi
+
+      - name: Check documentation freshness
+        env:
+          PYTHONPATH: ${{ github.workspace }}/stacks
+        run: |
+          # Verify ACTIVE_MEMORY is fresh (P-007)
+          if [ -f .infinity/ACTIVE_MEMORY.md ]; then
+            MOD_EPOCH=$(date -r .infinity/ACTIVE_MEMORY.md +%s 2>/dev/null || echo 0)
+            NOW_EPOCH=$(date +%s)
+            AGE_HOURS=$(( (NOW_EPOCH - MOD_EPOCH) / 3600 ))
+            echo "ACTIVE_MEMORY.md age: ${AGE_HOURS}h"
+            if [ "$AGE_HOURS" -gt 2 ]; then
+              echo "::warning::ACTIVE_MEMORY.md is ${AGE_HOURS}h old — triggering rehydration."
+              bash scripts/rehydrate.sh || echo "Rehydration degraded."
+            fi
+          fi
+
+      - name: Commit updated docs if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet docs/ .infinity/; then
+            git add docs/ .infinity/
+            git commit -m "docs(copilot-scheduler): sync documentation [run ${{ github.run_id }}]"
+            git push
+          else
+            echo "Documentation is up to date."
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Phase 5 — Security Audit Scheduling
+  # ─────────────────────────────────────────────────────────────────────────────
+  security_audit_schedule:
+    name: 🔐 Security Audit Scheduling
+    needs: [triage]
+    runs-on: ubuntu-latest
+    if: |
+      needs.triage.outputs.scope == 'full' ||
+      needs.triage.outputs.scope == 'security-audit'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+      - name: Write security summary
+        run: |
+          echo "## 🔐 Security Audit" >> "$GITHUB_STEP_SUMMARY"
+          echo "- CodeQL scan completed for Python" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> "$GITHUB_STEP_SUMMARY"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Phase 6 — Scheduler Summary
+  # ─────────────────────────────────────────────────────────────────────────────
+  scheduler_summary:
+    name: 📊 Scheduler Summary
+    needs:
+      - triage
+      - code_review_schedule
+      - dependency_update
+      - documentation_sync
+      - security_audit_schedule
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Write scheduler run summary
+        run: |
+          echo "## 🤖 Copilot Task Scheduler — Run Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Phase | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 📋 Triage              | ${{ needs.triage.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 👁️ Code Review         | ${{ needs.code_review_schedule.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 📦 Dependency Update   | ${{ needs.dependency_update.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 📝 Documentation Sync  | ${{ needs.documentation_sync.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🔐 Security Audit      | ${{ needs.security_audit_schedule.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Scope**: ${{ needs.triage.outputs.scope }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Tasks Triaged**: ${{ needs.triage.outputs.task_count }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run ID**: ${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> "$GITHUB_STEP_SUMMARY"

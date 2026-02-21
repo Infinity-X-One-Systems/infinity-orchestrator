@@ -1,0 +1,191 @@
+# Infinity Orchestrator — Monitoring & Telemetry Dashboard Config
+# TAP Protocol: P-001 (no secrets), P-006 (correlation IDs on all calls)
+# Compatible with: Grafana (JSON model), Prometheus scrape config,
+#                  and GitHub Actions step summary tables.
+
+# ── Dashboard Identity ────────────────────────────────────────────────────────
+dashboard:
+  id: infinity-orchestrator-telemetry
+  title: "Infinity Orchestrator — Telemetry Dashboard"
+  version: "1.0.0"
+  refresh_interval: 60s
+  timezone: UTC
+
+# ── Data Sources ──────────────────────────────────────────────────────────────
+data_sources:
+  github_actions:
+    type: github-actions-api
+    base_url: "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator"
+    auth: bearer_token                  # use GITHUB_TOKEN — never stored here (P-001)
+    endpoints:
+      workflow_runs: "/actions/runs"
+      jobs:          "/actions/runs/{run_id}/jobs"
+      artifacts:     "/actions/runs/{run_id}/artifacts"
+    scrape_interval: 60s
+
+  telemetry_logs:
+    type: local_json
+    path: "logs/telemetry/"
+    pattern: "run-*.json"
+    retention_days: 90
+
+  memory_state:
+    type: file
+    path: ".infinity/ACTIVE_MEMORY.md"
+    freshness_threshold_hours: 2        # alert if older (P-007)
+
+  prometheus:
+    type: prometheus
+    scrape_interval: 30s
+    metrics_path: /metrics
+    # Expose a Prometheus-compatible exporter via the Docker stack
+    # (e.g., grafana/grafana:latest + prometheus/prometheus:latest)
+    targets:
+      - job_name: infinity_orchestrator
+        static_configs:
+          - targets: ["localhost:9090"]
+
+# ── Panels ────────────────────────────────────────────────────────────────────
+panels:
+  # 1) Workflow health overview
+  - id: workflow_health
+    title: "Workflow Run Health"
+    type: stat
+    queries:
+      - metric: workflow_runs_total
+        filter: "conclusion=~'success|failure|cancelled'"
+        labels: [conclusion]
+    thresholds:
+      success_rate_warn: 0.90
+      success_rate_crit: 0.80
+
+  # 2) Memory freshness
+  - id: memory_freshness
+    title: "ACTIVE_MEMORY Freshness"
+    type: gauge
+    unit: hours
+    queries:
+      - source: memory_state
+        field: last_modified_hours_ago
+    thresholds:
+      warn: 2
+      crit: 6
+
+  # 3) Phase duration histogram
+  - id: phase_duration
+    title: "Pipeline Phase Durations (seconds)"
+    type: histogram
+    queries:
+      - source: telemetry_logs
+        field: phase_duration_seconds
+        group_by: phase_name
+
+  # 4) TAP validation pass rate
+  - id: tap_pass_rate
+    title: "TAP Validation Pass Rate"
+    type: pie
+    queries:
+      - source: telemetry_logs
+        field: tap_passed
+        values: [true, false]
+
+  # 5) Ideas discovered vs scored
+  - id: discovery_funnel
+    title: "Discovery Funnel"
+    type: bar
+    queries:
+      - source: telemetry_logs
+        fields:
+          - ideas_found
+          - top_ideas
+
+  # 6) Self-healing events
+  - id: healing_events
+    title: "Self-Healing Events (7 days)"
+    type: table
+    queries:
+      - source: github_actions
+        workflow: self-healing.yml
+        fields: [run_id, created_at, conclusion]
+    limit: 50
+
+  # 7) Autonomous PR activity
+  - id: auto_pr_activity
+    title: "Autonomous PR Activity"
+    type: time_series
+    queries:
+      - source: github_actions
+        workflow: autonomous-discovery.yml
+        fields: [created_at, conclusion]
+        group_by: day
+
+  # 8) Runner availability (self-hosted)
+  - id: runner_availability
+    title: "Self-Hosted Runner Status"
+    type: table
+    queries:
+      - source: github_actions
+        endpoint: "/actions/runners"
+        fields: [name, status, busy, labels]
+
+# ── Alerting Rules ────────────────────────────────────────────────────────────
+alerts:
+  - id: tap_failure
+    name: "TAP Validation Failure"
+    condition: "tap_pass_rate < 1.0"
+    severity: critical
+    channels:
+      - github_issue:
+          labels: ["orchestrator:alert", "tap-validation", "priority:high"]
+
+  - id: memory_stale
+    name: "ACTIVE_MEMORY Stale"
+    condition: "last_modified_hours_ago > 2"
+    severity: warning
+    channels:
+      - github_issue:
+          labels: ["orchestrator:alert", "memory-sync"]
+
+  - id: workflow_failure_spike
+    name: "Workflow Failure Rate > 20%"
+    condition: "workflow_failure_rate > 0.20"
+    severity: warning
+    channels:
+      - github_issue:
+          labels: ["orchestrator:alert", "ci-failure"]
+
+  - id: runner_offline
+    name: "Self-Hosted Runner Offline"
+    condition: "runner_status != 'online'"
+    severity: critical
+    channels:
+      - github_issue:
+          labels: ["orchestrator:alert", "runner-offline", "priority:high"]
+
+# ── Retention Policies ────────────────────────────────────────────────────────
+retention:
+  telemetry_logs: 90d
+  workflow_run_artifacts: 30d
+  tap_reports: 30d
+  simulation_reports: 30d
+  coverage_reports: 7d
+
+# ── Grafana Dashboard JSON Export Reference ───────────────────────────────────
+# To import into Grafana:
+#   1. Open Grafana → Dashboards → Import
+#   2. Upload docs/grafana-dashboard.json (generated by reporter_agent.py)
+#   3. Select the Prometheus data source configured above
+#   4. Save dashboard
+#
+# To generate the Grafana JSON model from this config:
+#   python stacks/agents/reporter_agent.py --grafana-export --output docs/grafana-dashboard.json
+
+# ── Prometheus Scrape Config Snippet ─────────────────────────────────────────
+# Add to prometheus.yml:
+#
+# scrape_configs:
+#   - job_name: infinity_orchestrator
+#     scrape_interval: 30s
+#     static_configs:
+#       - targets: ['localhost:9090']
+#     metrics_path: /metrics
