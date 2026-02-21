@@ -1,0 +1,53 @@
+{
+  "connector_id": "groq",
+  "name": "Groq — Ultra-Fast LLM Inference",
+  "version": "1.0.0",
+  "description": "Connector for Groq Cloud API. Provides ultra-low-latency inference for Llama, Mixtral, and Gemma models via Groq's LPU hardware. OpenAI-compatible API.",
+  "status": "active",
+  "auth": {
+    "type": "bearer",
+    "secret_env": "GROQ_API_KEY",
+    "header": "Authorization: Bearer {GROQ_API_KEY}",
+    "notes": "Obtain API key from console.groq.com. Free tier includes generous rate limits."
+  },
+  "base_url": "https://api.groq.com/openai/v1",
+  "endpoints": {
+    "chat": {
+      "path": "/chat/completions",
+      "method": "POST",
+      "description": "OpenAI-compatible chat completions.",
+      "body_schema": {
+        "model": "string",
+        "messages": "array of {role, content}",
+        "max_tokens": "integer",
+        "temperature": "float 0–2",
+        "stream": "boolean"
+      },
+      "env_model": "GROQ_MODEL",
+      "default_model": "llama-3.3-70b-versatile"
+    },
+    "list_models": {
+      "path": "/models",
+      "method": "GET",
+      "description": "List available Groq models."
+    }
+  },
+  "recommended_models": {
+    "fast": ["llama-3.1-8b-instant", "gemma2-9b-it"],
+    "balanced": ["llama-3.3-70b-versatile", "mixtral-8x7b-32768"],
+    "high_context": ["llama-3.1-70b-versatile"]
+  },
+  "rate_limits": {
+    "requests_per_minute": 30,
+    "tokens_per_minute": 131072,
+    "notes": "Free tier limits; upgrade at console.groq.com for higher limits."
+  },
+  "tags": ["llm", "cloud", "fast", "openai-compatible", "groq"],
+  "governance": {
+    "tap_compliant": true,
+    "p001_no_secrets": true,
+    "p002_no_long_lived_pats": true,
+    "p007_graceful_degradation": true,
+    "notes": "API key stored as GitHub Actions secret GROQ_API_KEY. Never commit to repository."
+  }
+}

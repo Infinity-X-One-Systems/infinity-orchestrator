@@ -1,0 +1,82 @@
+{
+  "connector_id": "ollama",
+  "name": "Ollama — Local LLM Runtime",
+  "version": "1.0.0",
+  "description": "Connector for Ollama local LLM inference server. Runs open-source models (Llama 3.2, Mistral, Gemma, nomic-embed-text) locally with no API key required. Ideal for offline-first, cost-free inference and embeddings.",
+  "status": "active",
+  "auth": {
+    "type": "none",
+    "notes": "No authentication required for local Ollama instance. For remote/shared instances, set OLLAMA_AUTH_TOKEN (Bearer)."
+  },
+  "base_url_env": "OLLAMA_BASE_URL",
+  "base_url_default": "http://localhost:11434",
+  "endpoints": {
+    "chat": {
+      "path": "/api/chat",
+      "method": "POST",
+      "description": "OpenAI-compatible chat completions via Ollama.",
+      "body_schema": {
+        "model": "string — e.g. llama3.2, mistral, gemma3",
+        "messages": "array of {role, content}",
+        "stream": "boolean (false for synchronous)",
+        "options": "optional: {temperature, top_p, max_tokens}"
+      },
+      "env_model": "OLLAMA_MODEL",
+      "default_model": "llama3.2"
+    },
+    "generate": {
+      "path": "/api/generate",
+      "method": "POST",
+      "description": "Single-turn text generation (legacy).",
+      "body_schema": {
+        "model": "string",
+        "prompt": "string",
+        "stream": "boolean"
+      }
+    },
+    "embeddings": {
+      "path": "/api/embeddings",
+      "method": "POST",
+      "description": "Generate dense text embeddings for vector store ingestion.",
+      "body_schema": {
+        "model": "string — e.g. nomic-embed-text",
+        "prompt": "string"
+      },
+      "env_model": "OLLAMA_EMBED_MODEL",
+      "default_model": "nomic-embed-text"
+    },
+    "list_models": {
+      "path": "/api/tags",
+      "method": "GET",
+      "description": "List all locally-available Ollama models."
+    },
+    "pull_model": {
+      "path": "/api/pull",
+      "method": "POST",
+      "description": "Download a model from the Ollama registry.",
+      "body_schema": {
+        "name": "string — model name e.g. llama3.2:latest"
+      }
+    },
+    "health": {
+      "path": "/",
+      "method": "GET",
+      "description": "Liveness check — returns 200 if Ollama is running."
+    }
+  },
+  "recommended_models": {
+    "chat": ["llama3.2", "llama3.2:3b", "mistral", "gemma3", "phi4-mini"],
+    "embeddings": ["nomic-embed-text", "mxbai-embed-large"],
+    "code": ["qwen2.5-coder", "codellama", "deepseek-coder-v2"]
+  },
+  "docker_service": "ollama",
+  "docker_compose_ref": "docker-compose.singularity.yml",
+  "openwebui_integration": true,
+  "tags": ["llm", "local", "offline", "embeddings", "open-source"],
+  "governance": {
+    "tap_compliant": true,
+    "p001_no_secrets": true,
+    "p007_graceful_degradation": true,
+    "notes": "Ollama is the preferred inference backend for offline/CI environments. No external API calls or billing exposure."
+  }
+}

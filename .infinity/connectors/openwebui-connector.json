@@ -1,0 +1,58 @@
+{
+  "connector_id": "openwebui",
+  "name": "Open WebUI — Unified LLM Chat Interface",
+  "version": "1.0.0",
+  "description": "Connector for Open WebUI (ghcr.io/open-webui/open-webui). Provides an OpenAI-compatible REST API gateway that proxies requests to Ollama, OpenAI, Groq, and other backends. Running locally on port 8090.",
+  "status": "active",
+  "auth": {
+    "type": "bearer",
+    "secret_env": "OPENWEBUI_API_KEY",
+    "header": "Authorization: Bearer {OPENWEBUI_API_KEY}",
+    "notes": "Generate an API key in Open WebUI Settings → Account → API Keys. The key grants access to all configured model backends."
+  },
+  "local_instance": {
+    "base_url": "http://localhost:8090",
+    "docker_image": "ghcr.io/open-webui/open-webui:v0.5.6",
+    "host_port": 8090,
+    "container_port": 8080,
+    "provisioner_mode": "openai",
+    "notes": "Instance confirmed running in Docker Desktop. Accessible at http://localhost:8090."
+  },
+  "endpoints": {
+    "chat_completions": {
+      "path": "/api/chat/completions",
+      "method": "POST",
+      "description": "OpenAI-compatible chat completions — proxied to configured backends.",
+      "body_schema": {
+        "model": "string — prefixed with backend, e.g. ollama/llama3.2",
+        "messages": "array of {role, content}",
+        "stream": "boolean",
+        "max_tokens": "integer"
+      }
+    },
+    "list_models": {
+      "path": "/api/models",
+      "method": "GET",
+      "description": "List all available models across all configured backends."
+    },
+    "health": {
+      "path": "/health",
+      "method": "GET",
+      "description": "Health check endpoint."
+    }
+  },
+  "backend_routing": {
+    "ollama": "Routes to OLLAMA_BASE_URL (default: http://localhost:11434)",
+    "openai": "Routes to OpenAI API using OPENAI_API_KEY",
+    "groq": "Routes to Groq API using GROQ_API_KEY"
+  },
+  "docker_service": "openwebui",
+  "docker_compose_ref": "docker-compose.singularity.yml",
+  "tags": ["ui", "llm", "gateway", "openai-compatible", "local", "docker"],
+  "governance": {
+    "tap_compliant": true,
+    "p001_no_secrets": true,
+    "p008_docker_socket": "read-only unless write justified in PR",
+    "notes": "Open WebUI API key stored as OPENWEBUI_API_KEY secret. The web interface is localhost-only; never expose externally without Cloudflare Access protection."
+  }
+}

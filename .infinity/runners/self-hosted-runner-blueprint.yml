@@ -1,0 +1,154 @@
+# Self-Hosted Runner Blueprint
+# Infinity Orchestrator — Regional Runner Configuration
+# TAP Protocol: P-001 (no secrets in config), P-008 (Docker read-only by default)
+#
+# Deploy: Copy this file to your runner host, fill in <PLACEHOLDER> values,
+#         then run `bash setup-runner.sh` from the same directory.
+#
+# Regions supported: us-east, us-west, eu-west, ap-southeast
+# Runner group: infinity-orchestrator
+
+runner:
+  # ── Identity ─────────────────────────────────────────────────────────────────
+  org: Infinity-X-One-Systems
+  repo: infinity-orchestrator           # set null for org-level runner
+  runner_group: infinity-orchestrator
+  name_prefix: infinity-runner          # full name: infinity-runner-<hostname>
+
+  # Labels applied to every runner (used by workflow `runs-on` selectors)
+  labels:
+    - self-hosted
+    - linux
+    - x64
+    - infinity-orchestrator
+    - docker
+    - cloudflare
+
+  # ── Regional Variants ────────────────────────────────────────────────────────
+  regions:
+    us-east:
+      location: us-east-1
+      instance_type: t3.xlarge          # 4 vCPU / 16 GiB
+      extra_labels:
+        - region:us-east
+      env:
+        RUNNER_REGION: us-east-1
+        RUNNER_CLOUD: aws
+
+    us-west:
+      location: us-west-2
+      instance_type: t3.xlarge
+      extra_labels:
+        - region:us-west
+      env:
+        RUNNER_REGION: us-west-2
+        RUNNER_CLOUD: aws
+
+    eu-west:
+      location: eu-west-1
+      instance_type: t3.xlarge
+      extra_labels:
+        - region:eu-west
+      env:
+        RUNNER_REGION: eu-west-1
+        RUNNER_CLOUD: aws
+
+    ap-southeast:
+      location: ap-southeast-1
+      instance_type: t3.xlarge
+      extra_labels:
+        - region:ap-southeast
+      env:
+        RUNNER_REGION: ap-southeast-1
+        RUNNER_CLOUD: aws
+
+  # ── Runtime Requirements ─────────────────────────────────────────────────────
+  requirements:
+    os: ubuntu-22.04
+    tools:
+      git:        ">=2.30"
+      docker:     ">=24.0"
+      gh:         ">=2.40"
+      jq:         ">=1.6"
+      python:     ">=3.11"
+      pwsh:       ">=7.0"     # optional: for deploy-singularity.ps1
+      nodejs:     ">=18.0"    # optional: for JavaScript tooling
+      wrangler:   ">=3.0"     # optional: for Cloudflare Workers
+
+  # ── Docker Configuration (P-008) ─────────────────────────────────────────────
+  docker:
+    socket_mount: read-only             # P-008: write requires explicit justification
+    daemon_available: true
+    in_docker_builds: true
+    prune_schedule: "0 3 * * *"        # daily at 03:00 UTC
+
+  # ── Ephemeral Mode ───────────────────────────────────────────────────────────
+  ephemeral:
+    enabled: true                       # recommended for untrusted code
+    cleanup_after_run: true
+    work_dir: _work
+
+  # ── Scaling ──────────────────────────────────────────────────────────────────
+  scaling:
+    min_runners: 1
+    max_runners: 10                     # aligns with orchestrator.yml max_parallel_builds
+    scale_down_delay_minutes: 15
+    idle_timeout_minutes: 30
+
+  # ── Health Probe ─────────────────────────────────────────────────────────────
+  health:
+    check_interval_seconds: 60
+    restart_on_failure: true
+    max_restart_attempts: 3
+    notify_on_offline: true             # triggers health-monitor.yml alert
+
+  # ── Networking ───────────────────────────────────────────────────────────────
+  network:
+    # Outbound HTTPS to GitHub only; no inbound ports required
+    allowed_egress:
+      - "github.com:443"
+      - "api.github.com:443"
+      - "objects.githubusercontent.com:443"
+      - "registry.npmjs.org:443"
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+    deny_all_inbound: true
+
+# ── Setup Script Reference ────────────────────────────────────────────────────
+# The following commands configure a runner from scratch.
+# RUNNER_TOKEN must be obtained via:
+#   gh api -X POST /orgs/Infinity-X-One-Systems/actions/runners/registration-token --jq '.token'
+#
+# setup:
+#   script: |
+#     set -euo pipefail
+#     RUNNER_VERSION="2.321.0"
+#     RUNNER_TOKEN="${RUNNER_TOKEN:?RUNNER_TOKEN must be set}"
+#     REGION="${RUNNER_REGION:-us-east-1}"
+#
+#     mkdir -p ~/actions-runner && cd ~/actions-runner
+#
+#     curl -sSL -o runner.tar.gz \
+#       "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
+#     tar xzf runner.tar.gz && rm runner.tar.gz
+#
+#     ./config.sh \
+#       --url "https://github.com/Infinity-X-One-Systems" \
+#       --token "${RUNNER_TOKEN}" \
+#       --name "infinity-runner-$(hostname)-${REGION}" \
+#       --labels "self-hosted,linux,x64,infinity-orchestrator,docker,cloudflare,region:${REGION}" \
+#       --runnergroup "infinity-orchestrator" \
+#       --work "_work" \
+#       --ephemeral \
+#       --replace
+#
+#     sudo ./svc.sh install
+#     sudo ./svc.sh start
+#
+# teardown:
+#   script: |
+#     set -euo pipefail
+#     cd ~/actions-runner
+#     sudo ./svc.sh stop
+#     sudo ./svc.sh uninstall
+#     ./config.sh remove --token "${RUNNER_TOKEN}"

@@ -148,7 +148,7 @@
       ]
     },
     "ai_services": {
-      "description": "AI inference and assistant endpoints (OpenAI, GitHub Copilot).",
+      "description": "AI inference and assistant endpoints (OpenAI, GitHub Copilot, Groq, Gemini, Ollama, Open WebUI).",
       "endpoints": [
         {
           "id": "openai-chat",
@@ -171,6 +171,94 @@
           "tags": ["ai", "openai", "embeddings"],
           "status": "active",
           "connector_config": ".infinity/connectors/openai-connector.json"
+        },
+        {
+          "id": "groq-chat",
+          "name": "Groq Chat Completions",
+          "url": "https://api.groq.com/openai/v1/chat/completions",
+          "method": "POST",
+          "auth": "bearer",
+          "auth_secret": "GROQ_API_KEY",
+          "tags": ["ai", "groq", "llm", "chat", "fast"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/groq-connector.json"
+        },
+        {
+          "id": "groq-models",
+          "name": "Groq — List Models",
+          "url": "https://api.groq.com/openai/v1/models",
+          "method": "GET",
+          "auth": "bearer",
+          "auth_secret": "GROQ_API_KEY",
+          "tags": ["ai", "groq", "models"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/groq-connector.json"
+        },
+        {
+          "id": "gemini-generate",
+          "name": "Google Gemini — Generate Content",
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+          "method": "POST",
+          "auth": "api_key_query",
+          "auth_secret": "GEMINI_API_KEY",
+          "tags": ["ai", "google", "gemini", "llm", "multimodal"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/gemini-connector.json"
+        },
+        {
+          "id": "gemini-embed",
+          "name": "Google Gemini — Embed Content",
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
+          "method": "POST",
+          "auth": "api_key_query",
+          "auth_secret": "GEMINI_API_KEY",
+          "tags": ["ai", "google", "gemini", "embeddings"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/gemini-connector.json"
+        },
+        {
+          "id": "ollama-chat",
+          "name": "Ollama — Chat Completions (local)",
+          "url": "http://localhost:11434/api/chat",
+          "method": "POST",
+          "auth": "none",
+          "auth_secret": null,
+          "tags": ["ai", "ollama", "llm", "local", "offline"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/ollama-connector.json"
+        },
+        {
+          "id": "ollama-embeddings",
+          "name": "Ollama — Embeddings (local)",
+          "url": "http://localhost:11434/api/embeddings",
+          "method": "POST",
+          "auth": "none",
+          "auth_secret": null,
+          "tags": ["ai", "ollama", "embeddings", "local", "offline"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/ollama-connector.json"
+        },
+        {
+          "id": "openwebui-chat",
+          "name": "Open WebUI — Chat Completions (local gateway)",
+          "url": "http://localhost:8090/api/chat/completions",
+          "method": "POST",
+          "auth": "bearer",
+          "auth_secret": "OPENWEBUI_API_KEY",
+          "tags": ["ai", "openwebui", "gateway", "local", "llm"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/openwebui-connector.json"
+        },
+        {
+          "id": "openwebui-models",
+          "name": "Open WebUI — List Models (local gateway)",
+          "url": "http://localhost:8090/api/models",
+          "method": "GET",
+          "auth": "bearer",
+          "auth_secret": "OPENWEBUI_API_KEY",
+          "tags": ["ai", "openwebui", "models", "local"],
+          "status": "active",
+          "connector_config": ".infinity/connectors/openwebui-connector.json"
         },
         {
           "id": "copilot-chat",

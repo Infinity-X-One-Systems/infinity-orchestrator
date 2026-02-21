@@ -31,6 +31,10 @@ volumes:
     driver: local
   factory-artifacts:
     driver: local
+  ollama-models:
+    driver: local
+  openwebui-data:
+    driver: local
   vision-sessions:
     driver: local
     driver_opts:
@@ -266,6 +270,81 @@ services:
           cpus: '0.5'
           memory: 1G
     shm_size: 1gb
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # OLLAMA: Local LLM Runtime (The Neural Language Engine)
+  # ───────────────────────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:0.6.1
+    container_name: infinity-ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - singularity-mesh
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    # GPU support (uncomment if NVIDIA GPU is available):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # OPEN WEBUI: Unified LLM Chat Gateway (The Intelligence Interface)
+  # Docs: .infinity/connectors/openwebui-connector.json
+  # Access: http://localhost:8090
+  # ───────────────────────────────────────────────────────────────────────────
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:v0.5.6
+    container_name: infinity-openwebui
+    restart: unless-stopped
+    ports:
+      - "${OPENWEBUI_PORT:-8090}:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET_KEY:-infinity-orchestrator-secret}
+      - ENABLE_SIGNUP=false
+      - DEFAULT_USER_ROLE=user
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - openwebui-data:/app/backend/data
+    networks:
+      - singularity-mesh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
 
   # ───────────────────────────────────────────────────────────────────────────
   # FACTORY ARM: The Builder (infinity-factory Pipelines)
