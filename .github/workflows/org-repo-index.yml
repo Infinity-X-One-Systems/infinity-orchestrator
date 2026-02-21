@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: write   # commit updated index files
+  issues: write     # create diagnostic issue on failure
 
 jobs:
   refresh-index:
@@ -46,16 +47,48 @@ jobs:
       - name: Discover org repositories
         id: discover
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use GitHub App installation token (P-005) if available; fall back to GITHUB_TOKEN
+          # with a warning. The App token must have org:read scope for full org listing.
+          GH_TOKEN: ${{ secrets.INFINITY_APP_TOKEN || secrets.GITHUB_TOKEN }}
           ORG_NAME: 'Infinity-X-One-Systems'
+          INFINITY_APP_TOKEN_AVAILABLE: ${{ secrets.INFINITY_APP_TOKEN != '' && 'true' || '' }}
         run: |
           set -euo pipefail
 
           echo "Discovering repositories in org: $ORG_NAME"
 
-          REPOS=$(gh repo list "$ORG_NAME" \
+          # Diagnose token type (no secret values logged — P-001)
+          if [ -n "${INFINITY_APP_TOKEN_AVAILABLE:-}" ]; then
+            echo "::notice::Using GitHub App installation token for org-wide access (P-005)."
+          else
+            echo "::warning::INFINITY_APP_TOKEN not set — using GITHUB_TOKEN which may have limited org scope."
+            echo "::warning::If repo count is 0, ensure the GitHub App is installed org-wide and INFINITY_APP_TOKEN is configured."
+          fi
+
+          # Attempt discovery; capture exit code to enable graceful degradation (P-007)
+          if ! REPOS=$(gh repo list "$ORG_NAME" \
             --json name,description,defaultBranchRef,isPrivate,isArchived,primaryLanguage,repositoryTopics,createdAt,updatedAt \
-            --limit 1000)
+            --limit 1000 2>&1); then
+            echo "::error::gh repo list failed: $REPOS"
+            echo "discover_error=true" >> "$GITHUB_OUTPUT"
+            echo "discover_error_message=$REPOS" >> "$GITHUB_OUTPUT"
+            # Write a minimal sentinel index so downstream tools don't break (P-007)
+            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            jq -n \
+              --arg ts "$TIMESTAMP" \
+              --arg org "$ORG_NAME" \
+              --arg err "$REPOS" \
+              '{version:"1.0.0",last_updated:$ts,organization:$org,
+                generated_by:"org-repo-index.yml",
+                note:"Discovery failed — see error field for details. Do not use for automation.",
+                discovery_error:$err,
+                repositories:[],
+                statistics:{total:0,active:0,archived:0,languages:{}}}' \
+              > .infinity/ORG_REPO_INDEX.json
+            exit 1
+          fi
+
+          echo "discover_error=false" >> "$GITHUB_OUTPUT"
 
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           TOTAL=$(echo "$REPOS" | jq '. | length')
@@ -65,6 +98,11 @@ jobs:
             'group_by(.primaryLanguage.name // "unknown") |
              map({key: (.[0].primaryLanguage.name // "unknown"), value: length}) |
              from_entries')
+
+          # Warn if result looks unexpectedly empty
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "::warning::Discovery returned 0 repositories. Check GitHub App permissions and org installation."
+          fi
 
           # Build JSON index
           jq -n \
@@ -205,4 +243,39 @@ jobs:
             echo "| Active | \`${{ steps.discover.outputs.active || 'n/a' }}\` |"
             echo "| Archived | \`${{ steps.discover.outputs.archived || 'n/a' }}\` |"
             echo "| Index changed | \`${{ steps.commit.outputs.changed || 'false' }}\` |"
+            echo "| Discovery error | \`${{ steps.discover.outputs.discover_error || 'false' }}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create diagnostic issue on discovery failure
+        if: failure() && steps.discover.outputs.discover_error == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if a recent open issue with this title already exists to avoid duplicates
+          EXISTING=$(gh issue list \
+            --repo "Infinity-X-One-Systems/infinity-orchestrator" \
+            --label "orchestrator:alert" \
+            --state open \
+            --search "Org Repo Index discovery failed" \
+            --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            echo "Diagnostic issue #$EXISTING already open — adding comment."
+            gh issue comment "$EXISTING" \
+              --repo "Infinity-X-One-Systems/infinity-orchestrator" \
+              --body "$(printf '🔁 **Recurring failure** on run [%s](%s/actions/runs/%s) at %s.\n\nSee workflow logs for details.' \
+                "${{ github.run_id }}" \
+                "${{ github.event.repository.html_url }}" \
+                "${{ github.run_id }}" \
+                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")")"
+          else
+            gh issue create \
+              --repo "Infinity-X-One-Systems/infinity-orchestrator" \
+              --title "🚨 Org Repo Index discovery failed — check GitHub App permissions" \
+              --label "orchestrator:alert,priority:high" \
+              --body "$(printf '## Org Repo Index Discovery Failure\n\nThe \`org-repo-index\` workflow failed to list repositories for the \`Infinity-X-One-Systems\` org.\n\n**Run:** [%s](%s/actions/runs/%s)\n**Trigger:** %s\n**Timestamp:** %s\n\n## Likely Causes\n\n1. **INFINITY_APP_TOKEN not set**: Add a GitHub App installation token as a repository secret named `INFINITY_APP_TOKEN` with `org:read` scope.\n2. **GITHUB_TOKEN scope**: The default `GITHUB_TOKEN` may not have org-wide read access. Use a GitHub App installation token (P-005).\n3. **App not installed org-wide**: Ensure the `infinity-orchestrator-app` GitHub App is installed on all org repositories.\n\n## Resolution\n\n- Set `INFINITY_APP_TOKEN` secret in repository settings with a valid GitHub App installation token\n- Verify the token has `Read access to members` and `Read access to metadata` permissions\n- Re-run this workflow after fixing permissions\n\n---\n*Auto-created by org-repo-index workflow — TAP P-001 compliant (no secrets in body)*' \
+                "${{ github.run_id }}" \
+                "${{ github.event.repository.html_url }}" \
+                "${{ github.run_id }}" \
+                "${{ github.event_name }}" \
+                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")")"
+          fi

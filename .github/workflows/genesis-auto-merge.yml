@@ -1,28 +1,109 @@
 name: Genesis Auto-Merge Autonomous PRs
 
+# Governed auto-merge for low/medium risk PRs.
+#
+# Break-glass toggles (repo/org variables):
+#   INFINITY_AUTOMERGE_ENABLED  — master merge switch  (default: true)
+#   INFINITY_QUARANTINE_MODE    — block all auto-merge  (default: false)
+#   INFINITY_MAX_PRS_PER_DAY    — daily circuit-breaker (default: 10)
+#
+# Auto-merge is allowed ONLY when:
+#   1. PR carries label "autonomous-verified"
+#   2. risk is low or medium (from label: risk:low or risk:medium)
+#   3. All CI checks pass (no failures/cancellations)
+#   4. PR is mergeable (no conflicts)
+#   5. TAP decision record is present in PR body (<!-- TAP-DECISION: ... -->)
+#   6. INFINITY_AUTOMERGE_ENABLED != false
+#   7. INFINITY_QUARANTINE_MODE != true
+#
+# High-risk PRs are never auto-merged (G-08).
+# TAP policies enforced: P-001, P-003, P-005, G-02, G-08
+
 on:
   pull_request:
-    types: [labeled, synchronize]
+    types: [labeled, synchronize, reopened]
   check_suite:
     types: [completed]
 
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 jobs:
-  auto-merge:
-    name: 🤖 Auto-Merge Verified PRs
+  # ── Policy gate ──────────────────────────────────────────────────────────────
+  policy-gate:
+    name: 🔐 Policy Gate
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'autonomous-verified')
 
+    outputs:
+      automerge_enabled: ${{ steps.gate.outputs.automerge_enabled }}
+      quarantine_active: ${{ steps.gate.outputs.quarantine_active }}
+      risk_level: ${{ steps.gate.outputs.risk_level }}
+      tap_decision_present: ${{ steps.gate.outputs.tap_decision_present }}
+
+    steps:
+      - name: Evaluate policy toggles and TAP record
+        id: gate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const automergeEnabled = (process.env.INFINITY_AUTOMERGE_ENABLED ?? 'true') !== 'false';
+            const quarantineActive = (process.env.INFINITY_QUARANTINE_MODE ?? 'false') === 'true';
+
+            core.setOutput('automerge_enabled', String(automergeEnabled));
+            core.setOutput('quarantine_active', String(quarantineActive));
+
+            // Determine risk level from PR labels
+            const labels = context.payload.pull_request.labels.map(l => l.name);
+            let riskLevel = 'unknown';
+            if (labels.includes('risk:low'))        riskLevel = 'low';
+            else if (labels.includes('risk:medium')) riskLevel = 'medium';
+            else if (labels.includes('risk:high'))   riskLevel = 'high';
+            else if (labels.includes('risk:critical')) riskLevel = 'critical';
+            core.setOutput('risk_level', riskLevel);
+
+            // Check for TAP decision record in PR body
+            const body = context.payload.pull_request.body ?? '';
+            const tapPresent = body.includes('<!-- TAP-DECISION:') || body.includes('## TAP Decision');
+            core.setOutput('tap_decision_present', String(tapPresent));
+
+            // Log the policy evaluation (no secrets — P-001)
+            console.log(`[policy-gate] automerge_enabled=${automergeEnabled}`);
+            console.log(`[policy-gate] quarantine_active=${quarantineActive}`);
+            console.log(`[policy-gate] risk_level=${riskLevel}`);
+            console.log(`[policy-gate] tap_decision_present=${tapPresent}`);
+
+            if (quarantineActive) {
+              core.warning('⚠️  QUARANTINE MODE ACTIVE — auto-merge blocked.');
+            }
+            if (!automergeEnabled) {
+              core.warning('⚠️  INFINITY_AUTOMERGE_ENABLED=false — auto-merge blocked.');
+            }
+        env:
+          INFINITY_AUTOMERGE_ENABLED: ${{ vars.INFINITY_AUTOMERGE_ENABLED }}
+          INFINITY_QUARANTINE_MODE: ${{ vars.INFINITY_QUARANTINE_MODE }}
+
+  # ── Auto-merge ────────────────────────────────────────────────────────────────
+  auto-merge:
+    name: 🤖 Auto-Merge Verified PRs
+    runs-on: ubuntu-latest
+    needs: policy-gate
+    if: |
+      needs.policy-gate.outputs.automerge_enabled == 'true' &&
+      needs.policy-gate.outputs.quarantine_active == 'false' &&
+      needs.policy-gate.outputs.risk_level != 'high' &&
+      needs.policy-gate.outputs.risk_level != 'critical' &&
+      needs.policy-gate.outputs.risk_level != 'unknown'
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      - name: Check PR Status
+      - name: Check PR status and CI checks
         id: pr-status
         uses: actions/github-script@v7
         with:
@@ -33,19 +114,34 @@ jobs:
               pull_number: context.issue.number
             });
 
-            const hasLabel = pr.labels.some(label => label.name === 'autonomous-verified');
-            if (!hasLabel) {
-              console.log('PR does not have autonomous-verified label');
+            // Verify required label is still present (re-check after checkout)
+            const hasVerifiedLabel = pr.labels.some(l => l.name === 'autonomous-verified');
+            if (!hasVerifiedLabel) {
+              console.log('[auto-merge] PR no longer has autonomous-verified label — aborting.');
               core.setOutput('result', 'false');
+              core.setOutput('reason', 'missing_label');
               return;
             }
 
-            if (!pr.mergeable) {
-              console.log('PR is not mergeable (conflicts)');
+            // Verify TAP decision record is in the PR body (G-08)
+            const body = pr.body ?? '';
+            const tapPresent = body.includes('<!-- TAP-DECISION:') || body.includes('## TAP Decision');
+            if (!tapPresent) {
+              console.log('[auto-merge] TAP decision record missing from PR body — aborting.');
               core.setOutput('result', 'false');
+              core.setOutput('reason', 'missing_tap_record');
               return;
             }
 
+            // Check mergeability
+            if (pr.mergeable === false) {
+              console.log('[auto-merge] PR has merge conflicts — aborting.');
+              core.setOutput('result', 'false');
+              core.setOutput('reason', 'merge_conflict');
+              return;
+            }
+
+            // Check all CI checks
             const { data: checkRuns } = await github.rest.checks.listForRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -57,33 +153,49 @@ jobs:
             );
 
             if (failedChecks.length > 0) {
-              console.log('Some checks failed:', failedChecks.map(c => c.name));
+              console.log('[auto-merge] Failed checks:', failedChecks.map(c => c.name));
               core.setOutput('result', 'false');
+              core.setOutput('reason', 'ci_failure');
               return;
             }
 
-            console.log('All checks passed, PR is ready to merge');
+            // Check for pending checks (not yet complete)
+            const pendingChecks = checkRuns.check_runs.filter(
+              check => check.status !== 'completed'
+            );
+            if (pendingChecks.length > 0) {
+              console.log('[auto-merge] Checks still pending — will retry on check_suite event.');
+              core.setOutput('result', 'false');
+              core.setOutput('reason', 'checks_pending');
+              return;
+            }
+
+            console.log('[auto-merge] All checks passed — PR ready to merge.');
             core.setOutput('result', 'true');
+            core.setOutput('reason', 'all_checks_passed');
 
-      - name: Wait for CI to Complete
-        if: steps.pr-status.outputs.result == 'true'
-        run: |
-          echo "Waiting for CI to complete..."
-          sleep 30
-
-      - name: Enable Auto-Merge
+      - name: Merge PR
         if: steps.pr-status.outputs.result == 'true'
         uses: actions/github-script@v7
         with:
           script: |
+            const riskLevel = '${{ needs.policy-gate.outputs.risk_level }}';
+
             try {
               await github.rest.pulls.merge({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: context.issue.number,
                 merge_method: 'squash',
-                commit_title: `🤖 Auto-merge: ${context.payload.pull_request.title}`,
-                commit_message: 'Automatically merged by Genesis autonomous system after validation.'
+                commit_title: `🤖 Auto-merge [${riskLevel} risk]: ${context.payload.pull_request.title}`,
+                commit_message: [
+                  'Automatically merged by Genesis auto-merge after all validation checks passed.',
+                  '',
+                  `Risk level  : ${riskLevel}`,
+                  `Run ID      : ${context.runId}`,
+                  `TAP decision: verified — record in PR body`,
+                  `Policies    : P-001, P-003, P-005, G-08`,
+                ].join('\n'),
               });
 
               console.log('✅ PR merged successfully');
@@ -92,26 +204,73 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: '🤖 **Genesis Autonomous Merge Complete**\n\nThis PR has been automatically merged after passing all validation checks.\n\n✅ All CI checks passed\n✅ Code review approved\n✅ Autonomous verification complete'
+                body: [
+                  '🤖 **Genesis Autonomous Merge Complete**',
+                  '',
+                  'This PR was automatically merged after passing all governance checks.',
+                  '',
+                  `- ✅ All CI checks passed`,
+                  `- ✅ Risk level: \`${riskLevel}\` (allowed for auto-merge)`,
+                  `- ✅ TAP decision record verified`,
+                  `- ✅ No merge conflicts`,
+                  '',
+                  `*Merged by run [${context.runId}](${context.payload.repository.html_url}/actions/runs/${context.runId})*`,
+                ].join('\n'),
               });
 
             } catch (error) {
-              console.error('Failed to merge PR:', error);
+              console.error('[auto-merge] Merge failed:', error.message);
 
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: `⚠️ **Auto-merge failed**\n\nError: ${error.message}\n\nPlease merge manually or investigate the issue.`
+                body: [
+                  '⚠️ **Auto-merge failed**',
+                  '',
+                  `Error: ${error.message}`,
+                  '',
+                  'Please merge manually or investigate the issue.',
+                ].join('\n'),
               });
 
               throw error;
             }
 
+  # ── Quarantine notification ──────────────────────────────────────────────────
+  quarantine-notice:
+    name: ⚠️ Quarantine Notice
+    runs-on: ubuntu-latest
+    needs: policy-gate
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'autonomous-verified') &&
+      needs.policy-gate.outputs.quarantine_active == 'true'
+
+    steps:
+      - name: Comment quarantine status on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '⚠️ **Quarantine Mode Active**',
+                '',
+                'Auto-merge is currently **disabled** because `INFINITY_QUARANTINE_MODE=true`.',
+                '',
+                'This PR has been opened as a **draft** for review. No automatic merges will occur.',
+                'Set the repository variable `INFINITY_QUARANTINE_MODE=false` to re-enable auto-merge.',
+              ].join('\n'),
+            });
+
+  # ── Status report ────────────────────────────────────────────────────────────
   notify-status:
     name: 📢 Notify Merge Status
     runs-on: ubuntu-latest
-    needs: [auto-merge]
+    needs: [policy-gate, auto-merge]
     if: always()
 
     steps:
@@ -119,6 +278,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const status = '${{ needs.auto-merge.result }}';
-            const emoji = status === 'success' ? '✅' : '❌';
-            console.log(`${emoji} Genesis auto-merge job ${status}`);
+            const mergeResult = '${{ needs.auto-merge.result }}';
+            const gateResult  = '${{ needs.policy-gate.result }}';
+            const emoji = mergeResult === 'success' ? '✅' : (mergeResult === 'skipped' ? '⏭️' : '❌');
+            console.log(`${emoji} policy-gate=${gateResult} | auto-merge=${mergeResult}`);

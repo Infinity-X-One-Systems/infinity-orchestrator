@@ -1,0 +1,159 @@
+name: Autonomy Controller
+
+# Governed, PR-only autonomy state machine
+# Sense → Think → Act → Verify → Ship → Learn
+#
+# Break-glass toggles (set as repo/org variables):
+#   INFINITY_AUTONOMY_ENABLED    — master kill-switch        (default: true)
+#   INFINITY_AUTOMERGE_ENABLED   — enable auto-merge         (default: true)
+#   INFINITY_MAX_PRS_PER_DAY     — daily PR circuit-breaker  (default: 10)
+#   INFINITY_QUARANTINE_MODE     — draft-only, no auto-merge (default: false)
+#
+# Policies enforced: P-001, P-003, P-004, P-005, G-02, G-08
+
+on:
+  schedule:
+    # Run every 6 hours (aligned with org-repo-index refresh)
+    - cron: '30 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      phases:
+        description: 'Space-separated phases to run (default: all). Options: sense think act verify ship learn'
+        required: false
+        default: ''
+        type: string
+      dry_run:
+        description: 'Dry run — log actions without opening PRs or writing to ledger'
+        required: false
+        default: 'false'
+        type: string
+  repository_dispatch:
+    types: [autonomy-trigger, repo-index-updated]
+
+permissions:
+  contents: write       # write run docs + ledger
+  pull-requests: write  # open PRs (ACT phase)
+  issues: write         # open tracking issues on guardrail breach
+  actions: read         # read workflow run status (VERIFY phase)
+
+concurrency:
+  group: autonomy-controller
+  cancel-in-progress: false
+
+env:
+  PYTHONPATH: ${{ github.workspace }}/stacks
+  GENESIS_REPO_PATH: ${{ github.workspace }}
+
+jobs:
+  controller:
+    name: 🤖 Autonomy Controller
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── TAP Policy Gate ────────────────────────────────────────────────────
+      - name: TAP Policy Gate
+        run: |
+          echo "::notice::TAP Gate — actor: github-actions[bot] | action: autonomy-controller | trigger: ${{ github.event_name }}"
+          echo "::notice::Correlation ID: ${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "::notice::Autonomy enabled: ${{ vars.INFINITY_AUTONOMY_ENABLED || 'true' }}"
+          echo "::notice::Automerge enabled: ${{ vars.INFINITY_AUTOMERGE_ENABLED || 'true' }}"
+          echo "::notice::Quarantine mode: ${{ vars.INFINITY_QUARANTINE_MODE || 'false' }}"
+
+      # ── Checkout ───────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      # ── Python setup ───────────────────────────────────────────────────────
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install --quiet requests
+
+      # ── Configure Git (P-003) ──────────────────────────────────────────────
+      - name: Configure Git
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      # ── Run autonomy controller ────────────────────────────────────────────
+      - name: Run Autonomy Controller
+        id: controller
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INFINITY_AUTONOMY_ENABLED: ${{ vars.INFINITY_AUTONOMY_ENABLED || 'true' }}
+          INFINITY_AUTOMERGE_ENABLED: ${{ vars.INFINITY_AUTOMERGE_ENABLED || 'true' }}
+          INFINITY_MAX_PRS_PER_DAY: ${{ vars.INFINITY_MAX_PRS_PER_DAY || '10' }}
+          INFINITY_QUARANTINE_MODE: ${{ vars.INFINITY_QUARANTINE_MODE || 'false' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          PHASES="${{ github.event.inputs.phases }}"
+          if [ -n "$PHASES" ]; then
+            python stacks/core/autonomy_controller.py $PHASES
+          else
+            python stacks/core/autonomy_controller.py
+          fi
+
+      # ── Commit ledger + run docs ───────────────────────────────────────────
+      - name: Commit artifacts
+        if: ${{ vars.INFINITY_AUTONOMY_ENABLED != 'false' && github.event.inputs.dry_run != 'true' }}
+        run: |
+          set -euo pipefail
+          git add .infinity/ledger/backlog.json docs/ || true
+          if git diff --cached --quiet; then
+            echo "No ledger/docs changes to commit."
+          else
+            git commit -m "chore(autonomy): run ${{ github.run_id }} — update ledger and docs
+
+          - Trigger      : ${{ github.event_name }}
+          - Run ID       : ${{ github.run_id }}
+          - Phases       : ${{ github.event.inputs.phases || 'all' }}
+          - Quarantine   : ${{ vars.INFINITY_QUARANTINE_MODE || 'false' }}"
+            git push
+            echo "Ledger and docs committed."
+          fi
+
+      # ── Quarantine check ───────────────────────────────────────────────────
+      - name: Check quarantine status
+        if: always()
+        run: |
+          if [ "${{ vars.INFINITY_QUARANTINE_MODE }}" = "true" ]; then
+            echo "::warning::⚠️  QUARANTINE MODE ACTIVE — auto-merge disabled, draft PRs only."
+            echo "## ⚠️ Quarantine Mode Active" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Auto-merge is **disabled**. All PRs opened as **drafts**." >> "$GITHUB_STEP_SUMMARY"
+            echo "Set \`INFINITY_QUARANTINE_MODE=false\` repo variable to re-enable." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ── Validate ledger after controller run ────────────────────────────────────
+  validate-ledger:
+    name: ✅ Validate Backlog Ledger
+    runs-on: ubuntu-latest
+    needs: controller
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          # Pull the latest commit including ledger updates
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate ledger schema
+        env:
+          GENESIS_REPO_PATH: ${{ github.workspace }}
+        run: |
+          python stacks/agents/backlog_agent.py validate \
+            --ledger .infinity/ledger/backlog.json
