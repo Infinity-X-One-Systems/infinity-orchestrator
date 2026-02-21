@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "schema": "https://infinity-x-one-systems.github.io/infinity-orchestrator/schemas/backlog-v1.json",
+  "last_updated": "1970-01-01T00:00:00Z",
+  "generated_by": "backlog_agent.py",
+  "note": "Auto-generated backlog ledger. Do not edit manually. All updates are atomic and idempotent.",
+  "items": [],
+  "statistics": {
+    "total": 0,
+    "by_status": {
+      "open": 0,
+      "in_progress": 0,
+      "done": 0,
+      "blocked": 0,
+      "cancelled": 0
+    },
+    "by_risk": {
+      "low": 0,
+      "medium": 0,
+      "high": 0,
+      "critical": 0
+    },
+    "by_type": {
+      "bug": 0,
+      "security": 0,
+      "chore": 0,
+      "feature": 0
+    }
+  }
+}
