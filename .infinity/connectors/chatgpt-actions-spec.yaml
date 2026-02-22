@@ -1,0 +1,307 @@
+openapi: "3.1.0"
+info:
+  title: Infinity Orchestrator — ChatGPT Actions
+  version: "1.0.0"
+  description: |
+    OpenAPI spec for the ChatGPT Custom GPT Actions integration with the
+    Infinity Orchestrator.  Configure this spec in your Custom GPT under
+    **Configure → Actions** to allow ChatGPT to dispatch commands to the
+    orchestrator, query system status, and trigger autonomous workflows
+    directly from a ChatGPT conversation.
+
+    ## Authentication
+    Every request uses a **GitHub App installation access token** (Bearer)
+    or a personal GitHub token with `repo` and `actions:write` scope.
+    Set the token in the ChatGPT Action authentication settings as
+    "API Key" with header `Authorization: Bearer <token>`.
+
+    ## TAP Compliance
+    All dispatched commands are processed by the universal-dispatch workflow
+    which enforces the full TAP Protocol (P-001 through P-008) before acting.
+
+servers:
+  - url: https://api.github.com
+    description: GitHub REST API (proxied through orchestrator)
+
+security:
+  - GitHubToken: []
+
+paths:
+
+  /repos/Infinity-X-One-Systems/infinity-orchestrator/dispatches:
+    post:
+      operationId: dispatchOrchestratorCommand
+      summary: Dispatch a command to the Infinity Orchestrator
+      description: |
+        Sends a repository_dispatch event to the orchestrator's
+        universal-dispatch workflow.  The workflow routes the command
+        to the appropriate engine (genesis-loop, autonomous-invention,
+        self-healing, health-monitor, etc.) and returns results via
+        the GitHub Actions step summary.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DispatchCommand"
+            examples:
+              run_genesis:
+                summary: Trigger the Genesis Loop
+                value:
+                  event_type: orchestrator_command
+                  client_payload:
+                    command: run_workflow
+                    workflow: genesis-loop.yml
+                    source: chatgpt
+                    params: {}
+              health_check:
+                summary: Run a health check
+                value:
+                  event_type: orchestrator_command
+                  client_payload:
+                    command: health_check
+                    source: chatgpt
+                    params: {}
+              invent:
+                summary: Trigger autonomous invention on a topic
+                value:
+                  event_type: orchestrator_command
+                  client_payload:
+                    command: trigger_invention
+                    source: chatgpt
+                    params:
+                      goal: "Build a REST API for user authentication"
+      responses:
+        "204":
+          description: Command accepted — workflow dispatch enqueued.
+        "401":
+          description: Authentication failure — check your GitHub token.
+        "422":
+          description: Validation error — check the request body schema.
+
+  /repos/Infinity-X-One-Systems/infinity-orchestrator/contents/.infinity/ACTIVE_MEMORY.md:
+    get:
+      operationId: getActiveMemory
+      summary: Read the current ACTIVE_MEMORY.md snapshot
+      description: |
+        Returns the latest agent memory snapshot, including repo identity,
+        tool versions, workflow list, scripts, and governance summary.
+        Use this to understand the current state of the orchestrator before
+        dispatching commands.
+      parameters:
+        - name: Accept
+          in: header
+          required: false
+          schema:
+            type: string
+            default: application/vnd.github.raw+json
+          description: Use raw+json to receive plain Markdown text.
+      responses:
+        "200":
+          description: Raw Markdown content of ACTIVE_MEMORY.md
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: Memory snapshot not found — trigger rehydrate workflow.
+
+  /repos/Infinity-X-One-Systems/infinity-orchestrator/contents/.infinity/ORG_REPO_INDEX.md:
+    get:
+      operationId: getOrgRepoIndex
+      summary: Read the current organisation repository index
+      description: |
+        Returns the Markdown-formatted index of all repositories in the
+        Infinity-X-One-Systems GitHub organisation.  Updated every 6 hours
+        by the org-repo-index workflow.
+      parameters:
+        - name: Accept
+          in: header
+          required: false
+          schema:
+            type: string
+            default: application/vnd.github.raw+json
+      responses:
+        "200":
+          description: Raw Markdown content of ORG_REPO_INDEX.md
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /repos/Infinity-X-One-Systems/infinity-orchestrator/actions/runs:
+    get:
+      operationId: listWorkflowRuns
+      summary: List recent workflow runs
+      description: |
+        Returns the 10 most recent GitHub Actions workflow runs for the
+        orchestrator repository.  Use this to check the status of recently
+        dispatched commands.
+      parameters:
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 30
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [queued, in_progress, completed, waiting]
+          description: Filter runs by status
+      responses:
+        "200":
+          description: List of workflow runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRunList"
+
+  /repos/Infinity-X-One-Systems/infinity-orchestrator/actions/workflows/{workflow_id}/dispatches:
+    post:
+      operationId: triggerWorkflow
+      summary: Directly trigger a named workflow
+      description: |
+        Triggers a specific workflow by filename with optional inputs.
+        Use this for targeted workflow invocations when you know the
+        exact workflow to run.
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Workflow filename, e.g. genesis-loop.yml
+          examples:
+            genesis_loop:
+              value: genesis-loop.yml
+            autonomous_invention:
+              value: autonomous-invention.yml
+            health_monitor:
+              value: health-monitor.yml
+            self_healing:
+              value: self-healing.yml
+            rehydrate:
+              value: rehydrate.yml
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowDispatch"
+      responses:
+        "204":
+          description: Workflow triggered successfully.
+        "422":
+          description: Validation error.
+
+components:
+  securitySchemes:
+    GitHubToken:
+      type: http
+      scheme: bearer
+      description: |
+        GitHub personal access token or GitHub App installation access token.
+        Required scopes: `repo`, `actions:write`.
+        Obtain a GitHub App installation token via the /app/installations/{id}/access_tokens
+        endpoint using your GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY.
+
+  schemas:
+    DispatchCommand:
+      type: object
+      required:
+        - event_type
+        - client_payload
+      properties:
+        event_type:
+          type: string
+          enum: [orchestrator_command]
+          description: Must be "orchestrator_command" to route to the universal-dispatch workflow.
+        client_payload:
+          $ref: "#/components/schemas/CommandPayload"
+
+    CommandPayload:
+      type: object
+      required:
+        - command
+        - source
+      properties:
+        command:
+          type: string
+          enum:
+            - run_workflow
+            - health_check
+            - memory_query
+            - repo_index
+            - create_issue
+            - trigger_invention
+            - trigger_genesis
+            - trigger_healing
+            - rehydrate
+          description: The operation to perform.
+        workflow:
+          type: string
+          description: Workflow filename (required when command is run_workflow).
+          example: genesis-loop.yml
+        source:
+          type: string
+          description: |
+            Surface identifier for audit logging.  Use "chatgpt" when
+            dispatching from a ChatGPT Custom GPT.
+          enum:
+            - chatgpt
+            - copilot-mobile
+            - admin.vizual-x.com
+            - admin.infinityxai.com
+            - api
+          default: chatgpt
+        actor:
+          type: string
+          description: Optional human-readable actor name for the audit log.
+        params:
+          type: object
+          description: Command-specific parameters (e.g. goal for trigger_invention).
+          additionalProperties: true
+          examples:
+            - goal: "Add OAuth2 support to the API"
+            - title: "Bug: health check timing out"
+
+    WorkflowDispatch:
+      type: object
+      required:
+        - ref
+      properties:
+        ref:
+          type: string
+          default: main
+          description: Git ref (branch or tag) to run the workflow on.
+        inputs:
+          type: object
+          additionalProperties: true
+          description: |
+            Workflow-specific inputs. See each workflow's `workflow_dispatch.inputs`
+            block for available fields.
+
+    WorkflowRunList:
+      type: object
+      properties:
+        total_count:
+          type: integer
+        workflow_runs:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              status:
+                type: string
+              conclusion:
+                type: string
+              created_at:
+                type: string
+              html_url:
+                type: string
