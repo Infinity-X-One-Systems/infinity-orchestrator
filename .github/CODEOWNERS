@@ -27,6 +27,12 @@
 # ── CI/CD Workflows ───────────────────────────────────────────────────────────
 /.github/workflows/              @InfinityXOneSystems
 
+# ── Invention Machine Docs ────────────────────────────────────────────────────
+/docs/infinity-invention-machine/ @InfinityXOneSystems
+
+# ── Reports (auto-generated; guard against manual edits) ──────────────────────
+/reports/                        @InfinityXOneSystems
+
 # ── Infrastructure ────────────────────────────────────────────────────────────
 /docker-compose.singularity.yml  @InfinityXOneSystems
 /docker/                         @InfinityXOneSystems

@@ -1,0 +1,142 @@
+name: Portfolio Audit
+
+# Collects repository metadata for the Infinity-X-One-Systems org and the
+# InfinityXOneSystems user account, then:
+#   1. Uploads a JSON + Markdown report as a workflow artifact.
+#   2. Commits the Markdown report to reports/portfolio-audit-<date>.md
+#      (idempotent: updates the same file if it already exists for that date).
+#
+# Required secrets:
+#   INFINITY_APP_TOKEN  — GitHub App installation token with:
+#                          - repo (read)
+#                          - read:org
+#                         Optional but recommended; falls back to GITHUB_TOKEN
+#                         with a warning if absent (org listing may be incomplete).
+#
+# Governance: TAP Protocol (Policy > Authority > Truth)
+# References: docs/infinity-invention-machine/architecture.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: 'Report date (YYYY-MM-DD). Defaults to today (UTC).'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write   # commit report to reports/
+
+jobs:
+  audit:
+    name: Run Portfolio Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── TAP Policy Gate ────────────────────────────────────────────────────
+      - name: TAP Policy Gate
+        run: |
+          echo "::notice::TAP Gate — actor: github-actions[bot] | action: portfolio-audit | trigger: ${{ github.event_name }}"
+          echo "::notice::Correlation ID: ${{ github.run_id }}-${{ github.run_attempt }}"
+
+      # ── Checkout ───────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
+      # ── Token diagnostics (P-001: no secret values in logs) ────────────────
+      - name: Token diagnostics
+        env:
+          INFINITY_APP_TOKEN_AVAILABLE: ${{ secrets.INFINITY_APP_TOKEN != '' && 'true' || '' }}
+        run: |
+          if [ -n "${INFINITY_APP_TOKEN_AVAILABLE:-}" ]; then
+            echo "::notice::Using INFINITY_APP_TOKEN for org-wide access."
+          else
+            echo "::warning::INFINITY_APP_TOKEN not set — using GITHUB_TOKEN."
+            echo "::warning::Org repo listing may be incomplete without an App token."
+            echo "::warning::Required permissions: repo (read), read:org."
+          fi
+
+      # ── Run audit script ───────────────────────────────────────────────────
+      - name: Run portfolio audit
+        id: audit
+        env:
+          GH_TOKEN: ${{ secrets.INFINITY_APP_TOKEN || secrets.GITHUB_TOKEN }}
+          ORG_NAME: 'Infinity-X-One-Systems'
+          USER_NAME: 'InfinityXOneSystems'
+          OUTPUT_DIR: 'reports'
+          REPORT_DATE: ${{ inputs.report_date || '' }}
+        run: |
+          set -euo pipefail
+
+          # If REPORT_DATE is not supplied, default to today (UTC)
+          if [ -z "${REPORT_DATE:-}" ]; then
+            REPORT_DATE=$(date -u +"%Y-%m-%d")
+          fi
+          export REPORT_DATE
+
+          echo "Report date: ${REPORT_DATE}"
+          bash scripts/portfolio-audit.sh
+
+          echo "report_date=${REPORT_DATE}" >> "$GITHUB_OUTPUT"
+          echo "report_md=reports/portfolio-audit-${REPORT_DATE}.md"  >> "$GITHUB_OUTPUT"
+          echo "report_json=reports/portfolio-audit-${REPORT_DATE}.json" >> "$GITHUB_OUTPUT"
+
+      # ── Upload artifacts ───────────────────────────────────────────────────
+      - name: Upload report artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-audit-${{ steps.audit.outputs.report_date }}
+          path: |
+            ${{ steps.audit.outputs.report_md }}
+            ${{ steps.audit.outputs.report_json }}
+          retention-days: 90
+          if-no-files-found: warn
+
+      # ── Commit report to reports/ ──────────────────────────────────────────
+      - name: Commit report
+        run: |
+          set -euo pipefail
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add reports/
+
+          if git diff --cached --quiet; then
+            echo "No changes — report is already up-to-date for ${{ steps.audit.outputs.report_date }}."
+          else
+            git commit -m "chore(audit): portfolio audit report ${{ steps.audit.outputs.report_date }}
+
+          - Org  : Infinity-X-One-Systems
+          - User : InfinityXOneSystems
+          - Date : ${{ steps.audit.outputs.report_date }}
+          - Run  : ${{ github.run_id }}"
+
+            git push
+            echo "::notice::Report committed and pushed."
+          fi
+
+      # ── Job summary ────────────────────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          REPORT_MD="${{ steps.audit.outputs.report_md }}"
+          {
+            echo "## Portfolio Audit"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Trigger | \`${{ github.event_name }}\` |"
+            echo "| Report date | \`${{ steps.audit.outputs.report_date || 'n/a' }}\` |"
+            echo "| Markdown report | \`${REPORT_MD}\` |"
+            echo ""
+            if [ -f "${REPORT_MD}" ]; then
+              echo "---"
+              echo ""
+              cat "${REPORT_MD}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
