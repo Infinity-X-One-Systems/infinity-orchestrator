@@ -4,6 +4,10 @@
 agent, coding assistant (GitHub Copilot, ChatGPT, Claude, etc.), and
 autonomous workflow that interacts with this repository.
 
+> 📖 **Operator?**  Read `CORE_SYSTEM.md` for the complete consolidated guide
+> covering all four operator surfaces (ChatGPT, Copilot Mobile,
+> admin.vizual-x.com, admin.infinityxai.com).
+
 ---
 
 ## 1. What This Repository Is
@@ -17,8 +21,21 @@ ecosystem.  It functions as a:
 | **Code & System Factory** | Generates, validates, and deploys code across all org repos autonomously |
 | **GitHub App Host** | Houses the `infinity-orchestrator` GitHub App, which has maximum permissions across the org |
 | **Memory Hub** | Stores and serves `ACTIVE_MEMORY.md` — the single source of truth for agent workspace context |
-| **Connector Gateway** | Manages authenticated connections to Cloudflare, VS Code/Codespaces, OpenAI, GitHub Copilot |
+| **Connector Gateway** | Manages authenticated connections to Cloudflare, VS Code/Codespaces, OpenAI, GitHub Copilot, admin panels |
 | **Governance Centre** | Enforces TAP Protocol, guardrails, and all org-wide policies |
+| **Universal Command Router** | Single `universal-dispatch.yml` entry point for ChatGPT, Copilot Mobile, and admin dashboards |
+
+## 1a. Operator Surfaces
+
+| Surface | How to Access | Command Entry Point |
+|---------|--------------|---------------------|
+| **ChatGPT** | Custom GPT with `.infinity/connectors/chatgpt-actions-spec.yaml` | `repository_dispatch` → `orchestrator_command` |
+| **Copilot Mobile** | GitHub Mobile app → Copilot tab → `@infinity-orchestrator` | Copilot Extension webhook → `copilot_command` |
+| **admin.vizual-x.com** | Admin dashboard | `repository_dispatch` → `vizual_x_command` |
+| **admin.infinityxai.com** | Admin dashboard | `repository_dispatch` → `infinityxai_command` |
+
+All four surfaces route through `.github/workflows/universal-dispatch.yml`.
+See `CORE_SYSTEM.md` for the complete operator guide.
 
 ---
 
@@ -250,14 +267,35 @@ Configure these in **Settings → Secrets and variables → Actions**:
 ## 9. Quick Commands
 
 ```bash
+# --- Universal Dispatch (all surfaces) ---
+
+# Trigger any command from the CLI (same as calling from ChatGPT/admin panel)
+gh workflow run universal-dispatch.yml \
+  -f command=health_check -f source=manual
+
+# Trigger autonomous invention with a goal
+gh workflow run universal-dispatch.yml \
+  -f command=trigger_invention \
+  -f params='{"goal":"Build a REST API for user auth"}' \
+  -f source=manual
+
+# Trigger via repository_dispatch (API / admin panel pattern)
+curl -X POST \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/dispatches \
+  -d '{"event_type":"orchestrator_command","client_payload":{"command":"health_check","source":"api"}}'
+
+# --- Direct workflow dispatch ---
+
 # Trigger memory rehydration
 gh workflow run rehydrate.yml
 
 # Run full autonomous cycle
 gh workflow run autonomous-invention.yml
 
-# Run Genesis loop (specific phase)
-gh workflow run genesis-loop.yml -f phase=plan
+# Run Genesis loop
+gh workflow run genesis-loop.yml
 
 # Refresh org repo index
 gh workflow run org-repo-index.yml

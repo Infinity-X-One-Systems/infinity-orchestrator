@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "last_updated": "2026-02-20T00:00:00Z",
+  "version": "1.1.0",
+  "last_updated": "2026-02-22T00:00:00Z",
   "registry_id": "infinity-orchestrator-endpoints",
   "organization": "Infinity-X-One-Systems",
   "description": "Canonical machine-readable endpoint registry for the Infinity Orchestrator. Consumed by agents, bootstrap scripts, and governance tooling.",
@@ -437,6 +437,67 @@
           "auth": "oauth2-google",
           "tags": ["google", "workspace", "calendar"],
           "status": "planned"
+        }
+      ]
+    },
+    "operator_surfaces": {
+      "description": "Inbound dispatch endpoints for all operator surfaces (ChatGPT, Copilot Mobile, admin panels). All route through universal-dispatch.yml.",
+      "endpoints": [
+        {
+          "id": "universal-dispatch-workflow",
+          "name": "Universal Dispatch — workflow_dispatch",
+          "url": "https://api.github.com/repos/{owner}/{repo}/actions/workflows/universal-dispatch.yml/dispatches",
+          "method": "POST",
+          "auth": "github-app-token",
+          "tags": ["dispatch", "universal", "operator"],
+          "status": "active",
+          "note": "Accepts workflow_dispatch inputs: command, workflow, source, actor, params.",
+          "connector_config": ".github/workflows/universal-dispatch.yml"
+        },
+        {
+          "id": "universal-dispatch-repo-event",
+          "name": "Universal Dispatch — repository_dispatch",
+          "url": "https://api.github.com/repos/{owner}/{repo}/dispatches",
+          "method": "POST",
+          "auth": "github-app-token",
+          "tags": ["dispatch", "universal", "operator", "api"],
+          "status": "active",
+          "note": "Accepts event_types: orchestrator_command, vizual_x_command, infinityxai_command, copilot_command.",
+          "connector_config": ".github/workflows/universal-dispatch.yml"
+        },
+        {
+          "id": "chatgpt-actions-dispatch",
+          "name": "ChatGPT Custom GPT — Dispatch Command",
+          "url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/dispatches",
+          "method": "POST",
+          "auth": "bearer",
+          "auth_secret": "GITHUB_APP_INSTALLATION_TOKEN",
+          "tags": ["chatgpt", "openai", "operator", "dispatch"],
+          "status": "active",
+          "note": "Used by the ChatGPT Custom GPT Actions integration. Spec: .infinity/connectors/chatgpt-actions-spec.yaml",
+          "connector_config": ".infinity/connectors/chatgpt-actions-spec.yaml"
+        },
+        {
+          "id": "vizual-x-dispatch",
+          "name": "admin.vizual-x.com — Dispatch Command",
+          "url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/dispatches",
+          "method": "POST",
+          "auth": "github-app-token",
+          "tags": ["vizual-x", "admin", "operator", "dispatch"],
+          "status": "active",
+          "note": "event_type must be vizual_x_command. See .infinity/connectors/vizual-x-connector.json",
+          "connector_config": ".infinity/connectors/vizual-x-connector.json"
+        },
+        {
+          "id": "infinityxai-dispatch",
+          "name": "admin.infinityxai.com — Dispatch Command",
+          "url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/dispatches",
+          "method": "POST",
+          "auth": "github-app-token",
+          "tags": ["infinityxai", "admin", "operator", "dispatch"],
+          "status": "active",
+          "note": "event_type must be infinityxai_command. See .infinity/connectors/infinityxai-connector.json",
+          "connector_config": ".infinity/connectors/infinityxai-connector.json"
         }
       ]
     }
