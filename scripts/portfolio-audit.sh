@@ -76,8 +76,7 @@ fetch_repos() {
         return
     fi
 
-    # Enrich with open PR count via GraphQL — best-effort per repo (P-007 graceful degradation).
-    # For large portfolios this would be slow; for the audit use a lightweight REST approach.
+    # Enrich with open PR count — best-effort per repo (P-007 graceful degradation).
     # gh repo list does not expose openPullRequests, so we fetch it separately for each repo.
     local enriched
     enriched=$(echo "$raw" | jq --arg entity "$entity_name" --arg etype "$entity_type" '
@@ -94,20 +93,23 @@ fetch_repos() {
         })
     ')
 
-    echo "$enriched"
+    # Populate open_prs for each repo (best-effort; skipped on API failure).
+    local count full_name updated_repos repo
+    updated_repos="[]"
+    while IFS= read -r repo; do
+        full_name=$(echo "$repo" | jq -r '.full_name')
+        count=$(fetch_open_pr_count "$full_name")
+        repo=$(echo "$repo" | jq --argjson c "$count" '.open_prs = $c')
+        updated_repos=$(echo "$updated_repos" | jq --argjson r "$repo" '. + [$r]')
+    done < <(echo "$enriched" | jq -c '.[]')
+
+    echo "$updated_repos"
 }
 
 # Fetch open PR count for a single repo (best-effort; returns 0 on failure).
 fetch_open_pr_count() {
     local full_name="$1"
     local count
-    if ! count=$(gh api "repos/${full_name}/pulls?state=open&per_page=1" \
-        --jq 'length' 2>/dev/null); then
-        echo 0
-        return
-    fi
-    # The above gives 0 or 1; use the Link header count for accuracy,
-    # but for simplicity just list up to 100 and count.
     if ! count=$(gh api "repos/${full_name}/pulls?state=open&per_page=100" \
         --jq 'length' 2>/dev/null); then
         echo 0
