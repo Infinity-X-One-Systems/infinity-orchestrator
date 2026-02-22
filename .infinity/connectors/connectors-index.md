@@ -23,6 +23,9 @@ external system.
 | **Groq (cloud LLM)** | `groq` | `groq-connector.json` | Bearer Token | ✅ Active |
 | **Google Gemini** | `gemini` | `gemini-connector.json` | API Key | ✅ Active |
 | **Open WebUI (gateway)** | `openwebui` | `openwebui-connector.json` | Bearer Token | ✅ Active |
+| **ChatGPT Custom GPT** | `chatgpt-actions` | `chatgpt-actions-spec.yaml` | Bearer Token | ✅ Active |
+| **admin.vizual-x.com** | `vizual-x-admin` | `vizual-x-connector.json` | GitHub App | ✅ Active |
+| **admin.infinityxai.com** | `infinityxai-admin` | `infinityxai-connector.json` | GitHub App | ✅ Active |
 
 All connectors are registered in `endpoint-registry.json` and governed by
 `auth-matrix.md`.
@@ -115,6 +118,28 @@ All connectors are registered in `endpoint-registry.json` and governed by
 - **Auth**: GitHub App token (Codespaces API) + `VSCODE_TUNNEL_TOKEN` (tunnel).
 - **Docs**: `vscode-connector.json`
 
+### ChatGPT Custom GPT Actions
+- **Purpose**: Exposes orchestrator operations (dispatch, memory query, workflow
+  trigger) as OpenAI-compatible Actions so a Custom GPT can control the
+  orchestrator directly from a ChatGPT conversation.
+- **Auth**: Bearer token (GitHub App installation token or scoped PAT).
+- **Spec**: `chatgpt-actions-spec.yaml` — import this into your Custom GPT under
+  **Configure → Actions**.
+- **Docs**: `CORE_SYSTEM.md` Section 2.1
+
+### admin.vizual-x.com
+- **Purpose**: Operator dashboard at `admin.vizual-x.com`.  Dispatches commands
+  to the orchestrator via GitHub `repository_dispatch` with
+  `event_type: vizual_x_command`.
+- **Auth**: GitHub App installation token (TAP P-002 — no PATs).
+- **Docs**: `vizual-x-connector.json` · `.infinity/runbooks/admin-panels.md`
+
+### admin.infinityxai.com
+- **Purpose**: Operator dashboard at `admin.infinityxai.com`.  Dispatches commands
+  via GitHub `repository_dispatch` with `event_type: infinityxai_command`.
+- **Auth**: GitHub App installation token (TAP P-002 — no PATs).
+- **Docs**: `infinityxai-connector.json` · `.infinity/runbooks/admin-panels.md`
+
 ---
 
 ## Required Secrets
@@ -131,6 +156,10 @@ All connectors are registered in `endpoint-registry.json` and governed by
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare connector | ✅ for CF ops |
 | `CLOUDFLARE_ZONE_ID` | Cloudflare DNS operations | ⚙️ per-zone ops |
 | `VSCODE_TUNNEL_TOKEN` | VS Code tunnel | ⚙️ for tunnel |
+| `VIZUAL_X_WEBHOOK_URL` | Vizual-X callbacks | ⚙️ optional |
+| `VIZUAL_X_WEBHOOK_SECRET` | Vizual-X callbacks | ⚙️ optional |
+| `INFINITYXAI_WEBHOOK_URL` | InfinityXAI callbacks | ⚙️ optional |
+| `INFINITYXAI_WEBHOOK_SECRET` | InfinityXAI callbacks | ⚙️ optional |
 | _(no secret needed)_ | Copilot Extension uses ECDSA P-256; verify against `https://api.github.com/meta/public_keys/copilot_api` | ✅ built-in |
 
 ---

@@ -1,0 +1,300 @@
+name: Universal Dispatch — Command Router
+
+# Single inbound entry point for all operator surfaces:
+#   - ChatGPT Custom GPT (via repository_dispatch event_type: orchestrator_command)
+#   - GitHub Copilot Mobile (via Copilot Extension webhook → repository_dispatch)
+#   - admin.vizual-x.com (via repository_dispatch event_type: vizual_x_command)
+#   - admin.infinityxai.com (via repository_dispatch event_type: infinityxai_command)
+#   - Direct workflow_dispatch (manual / CI)
+#
+# The router validates the command, logs a TAP-compliant audit entry, then
+# dispatches to the appropriate downstream workflow via gh workflow run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: |
+          Command to execute. One of:
+          run_workflow | health_check | memory_query | repo_index |
+          create_issue | trigger_invention | trigger_genesis |
+          trigger_healing | rehydrate
+        required: true
+        type: choice
+        options:
+          - run_workflow
+          - health_check
+          - memory_query
+          - repo_index
+          - create_issue
+          - trigger_invention
+          - trigger_genesis
+          - trigger_healing
+          - rehydrate
+      workflow:
+        description: 'Workflow filename (required when command=run_workflow)'
+        required: false
+        type: string
+      source:
+        description: 'Originating surface (for audit log)'
+        required: false
+        type: choice
+        options:
+          - manual
+          - chatgpt
+          - copilot-mobile
+          - admin.vizual-x.com
+          - admin.infinityxai.com
+          - api
+        default: manual
+      actor:
+        description: 'Human-readable actor name (for audit log)'
+        required: false
+        type: string
+      params:
+        description: 'JSON object of command-specific parameters'
+        required: false
+        type: string
+        default: '{}'
+
+  repository_dispatch:
+    types:
+      - orchestrator_command   # ChatGPT / generic API
+      - vizual_x_command       # admin.vizual-x.com
+      - infinityxai_command    # admin.infinityxai.com
+      - copilot_command        # Copilot Extension webhook relay
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: universal-dispatch-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+
+  route:
+    name: Route Command
+    runs-on: ubuntu-latest
+
+    outputs:
+      command:  ${{ steps.parse.outputs.command }}
+      workflow: ${{ steps.parse.outputs.workflow }}
+      source:   ${{ steps.parse.outputs.source }}
+      actor:    ${{ steps.parse.outputs.actor }}
+      params:   ${{ steps.parse.outputs.params }}
+
+    steps:
+      - name: Parse and normalise command
+        id: parse
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          # workflow_dispatch inputs
+          WD_COMMAND:  ${{ github.event.inputs.command }}
+          WD_WORKFLOW: ${{ github.event.inputs.workflow }}
+          WD_SOURCE:   ${{ github.event.inputs.source }}
+          WD_ACTOR:    ${{ github.event.inputs.actor }}
+          WD_PARAMS:   ${{ github.event.inputs.params }}
+          # repository_dispatch payload
+          RD_COMMAND:  ${{ github.event.client_payload.command }}
+          RD_WORKFLOW: ${{ github.event.client_payload.workflow }}
+          RD_SOURCE:   ${{ github.event.client_payload.source }}
+          RD_ACTOR:    ${{ github.event.client_payload.actor }}
+          RD_PARAMS:   ${{ toJson(github.event.client_payload.params) }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            COMMAND="${WD_COMMAND}"
+            WORKFLOW="${WD_WORKFLOW:-}"
+            SOURCE="${WD_SOURCE:-manual}"
+            ACTOR="${WD_ACTOR:-}"
+            PARAMS="${WD_PARAMS:-{}}"
+          else
+            COMMAND="${RD_COMMAND}"
+            WORKFLOW="${RD_WORKFLOW:-}"
+            SOURCE="${RD_SOURCE:-api}"
+            ACTOR="${RD_ACTOR:-}"
+            PARAMS="${RD_PARAMS:-{}}"
+          fi
+
+          # Validate command is non-empty
+          if [ -z "$COMMAND" ]; then
+            echo "::error::command parameter is required"
+            exit 1
+          fi
+
+          echo "command=${COMMAND}"  >> "$GITHUB_OUTPUT"
+          echo "workflow=${WORKFLOW}" >> "$GITHUB_OUTPUT"
+          echo "source=${SOURCE}"   >> "$GITHUB_OUTPUT"
+          echo "actor=${ACTOR}"     >> "$GITHUB_OUTPUT"
+          echo "params=${PARAMS}"   >> "$GITHUB_OUTPUT"
+
+      - name: TAP Audit log (P-006)
+        env:
+          COMMAND:  ${{ steps.parse.outputs.command }}
+          WORKFLOW: ${{ steps.parse.outputs.workflow }}
+          SOURCE:   ${{ steps.parse.outputs.source }}
+          ACTOR:    ${{ steps.parse.outputs.actor }}
+          PARAMS:   ${{ steps.parse.outputs.params }}
+        run: |
+          set -euo pipefail
+          CORRELATION_ID="${{ github.run_id }}-$(date +%s)"
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          ## 🔀 Universal Dispatch — Audit Entry
+
+          | Field | Value |
+          |-------|-------|
+          | Correlation ID | \`${CORRELATION_ID}\` |
+          | Command | \`${COMMAND}\` |
+          | Workflow | \`${WORKFLOW:-n/a}\` |
+          | Source | \`${SOURCE}\` |
+          | Actor | \`${ACTOR:-unknown}\` |
+          | Run | [\`${{ github.run_id }}\`](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
+          | Timestamp | $(date -u +"%Y-%m-%dT%H:%M:%SZ") |
+
+          *TAP P-006 compliance: correlation ID logged before execution.*
+          EOF
+
+  execute:
+    name: Execute — ${{ needs.route.outputs.command }}
+    runs-on: ubuntu-latest
+    needs: route
+    env:
+      COMMAND:    ${{ needs.route.outputs.command }}
+      WORKFLOW:   ${{ needs.route.outputs.workflow }}
+      SOURCE:     ${{ needs.route.outputs.source }}
+      ACTOR:      ${{ needs.route.outputs.actor }}
+      PARAMS_RAW: ${{ needs.route.outputs.params }}
+      GH_TOKEN:   ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Route — run_workflow
+        if: env.COMMAND == 'run_workflow'
+        run: |
+          set -euo pipefail
+          if [ -z "${WORKFLOW}" ]; then
+            echo "::error::workflow input is required for run_workflow command"
+            exit 1
+          fi
+          echo "Dispatching workflow: ${WORKFLOW} (source: ${SOURCE})"
+          gh workflow run "${WORKFLOW}" \
+            --repo "${{ github.repository }}" \
+            --ref main
+          echo "✅ Workflow \`${WORKFLOW}\` dispatched from \`${SOURCE}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Route — health_check
+        if: env.COMMAND == 'health_check'
+        run: |
+          set -euo pipefail
+          echo "Running health check (source: ${SOURCE})"
+          gh workflow run health-monitor.yml \
+            --repo "${{ github.repository }}" \
+            --ref main
+          echo "✅ Health check triggered from \`${SOURCE}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Route — trigger_invention
+        if: env.COMMAND == 'trigger_invention'
+        run: |
+          set -euo pipefail
+          GOAL=$(echo "${PARAMS_RAW}" | jq -r '.goal // empty' 2>/dev/null || true)
+          echo "Triggering autonomous invention (goal: ${GOAL:-<none>})"
+          if [ -n "${GOAL}" ]; then
+            gh workflow run autonomous-invention.yml \
+              --repo "${{ github.repository }}" \
+              --ref main \
+              -f "goal=${GOAL}"
+          else
+            gh workflow run autonomous-invention.yml \
+              --repo "${{ github.repository }}" \
+              --ref main
+          fi
+          echo "✅ Autonomous invention triggered from \`${SOURCE}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Route — trigger_genesis
+        if: env.COMMAND == 'trigger_genesis'
+        run: |
+          set -euo pipefail
+          echo "Triggering Genesis Loop (source: ${SOURCE})"
+          gh workflow run genesis-loop.yml \
+            --repo "${{ github.repository }}" \
+            --ref main
+          echo "✅ Genesis Loop triggered from \`${SOURCE}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Route — trigger_healing
+        if: env.COMMAND == 'trigger_healing'
+        run: |
+          set -euo pipefail
+          echo "Triggering self-healing (source: ${SOURCE})"
+          gh workflow run self-healing.yml \
+            --repo "${{ github.repository }}" \
+            --ref main
+          echo "✅ Self-healing triggered from \`${SOURCE}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Route — rehydrate
+        if: env.COMMAND == 'rehydrate'
+        run: |
+          set -euo pipefail
+          echo "Triggering memory rehydration (source: ${SOURCE})"
+          gh workflow run rehydrate.yml \
+            --repo "${{ github.repository }}" \
+            --ref main
+          echo "✅ Rehydrate triggered from \`${SOURCE}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Route — memory_query
+        if: env.COMMAND == 'memory_query'
+        run: |
+          set -euo pipefail
+          echo "## 🧠 ACTIVE_MEMORY.md Snapshot" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat .infinity/ACTIVE_MEMORY.md >> "$GITHUB_STEP_SUMMARY" || \
+            echo "⚠️ Memory file not found — trigger rehydrate." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Route — repo_index
+        if: env.COMMAND == 'repo_index'
+        run: |
+          set -euo pipefail
+          echo "## 📦 Org Repository Index" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat .infinity/ORG_REPO_INDEX.md >> "$GITHUB_STEP_SUMMARY" || \
+            echo "⚠️ Repo index not found — trigger org-repo-index workflow." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Route — create_issue
+        if: env.COMMAND == 'create_issue'
+        uses: actions/github-script@v7
+        env:
+          PARAMS_RAW: ${{ needs.route.outputs.params }}
+        with:
+          script: |
+            const params = JSON.parse(process.env.PARAMS_RAW || '{}');
+            const title  = params.title || 'Issue created via Universal Dispatch';
+            const body   = params.body  || `Created from \`${process.env.SOURCE}\` via universal-dispatch workflow.\n\n**Actor**: ${process.env.ACTOR || 'unknown'}\n**Run**: [#${context.runId}](${context.payload.repository.html_url}/actions/runs/${context.runId})`;
+            const labels = params.labels || ['auto-generated'];
+            const result = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title, body, labels
+            });
+            core.summary.addRaw(`✅ Issue [#${result.data.number}](${result.data.html_url}) created from \`${process.env.SOURCE}\``);
+            await core.summary.write();
+
+      - name: Unknown command
+        if: |
+          env.COMMAND != 'run_workflow'      &&
+          env.COMMAND != 'health_check'      &&
+          env.COMMAND != 'trigger_invention' &&
+          env.COMMAND != 'trigger_genesis'   &&
+          env.COMMAND != 'trigger_healing'   &&
+          env.COMMAND != 'rehydrate'         &&
+          env.COMMAND != 'memory_query'      &&
+          env.COMMAND != 'repo_index'        &&
+          env.COMMAND != 'create_issue'
+        run: |
+          echo "::error::Unknown command '${COMMAND}'. Valid commands: run_workflow, health_check, memory_query, repo_index, create_issue, trigger_invention, trigger_genesis, trigger_healing, rehydrate"
+          exit 1

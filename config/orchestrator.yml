@@ -311,6 +311,50 @@ connectors:
     tunnel_secret: "VSCODE_TUNNEL_TOKEN"
     codespace_auto_create: false
 
+  # ChatGPT Custom GPT Actions
+  chatgpt_actions:
+    enabled: true
+    spec: ".infinity/connectors/chatgpt-actions-spec.yaml"
+    auth_method: "bearer_token"
+    auth_secret: "GITHUB_APP_INSTALLATION_TOKEN"
+    setup_guide: "CORE_SYSTEM.md"
+
+  # admin.vizual-x.com operator panel
+  vizual_x:
+    enabled: true
+    config: ".infinity/connectors/vizual-x-connector.json"
+    dispatch_event_type: "vizual_x_command"
+    webhook_url_secret: "VIZUAL_X_WEBHOOK_URL"
+    webhook_secret: "VIZUAL_X_WEBHOOK_SECRET"
+    runbook: ".infinity/runbooks/admin-panels.md"
+
+  # admin.infinityxai.com operator panel
+  infinityxai:
+    enabled: true
+    config: ".infinity/connectors/infinityxai-connector.json"
+    dispatch_event_type: "infinityxai_command"
+    webhook_url_secret: "INFINITYXAI_WEBHOOK_URL"
+    webhook_secret: "INFINITYXAI_WEBHOOK_SECRET"
+    runbook: ".infinity/runbooks/admin-panels.md"
+
+# Universal Dispatch Settings
+universal_dispatch:
+  # Single entry-point workflow for all operator surfaces
+  workflow: ".github/workflows/universal-dispatch.yml"
+
+  # Supported inbound repository_dispatch event types
+  event_types:
+    - orchestrator_command   # ChatGPT / generic API
+    - vizual_x_command       # admin.vizual-x.com
+    - infinityxai_command    # admin.infinityxai.com
+    - copilot_command        # Copilot Extension webhook relay
+
+  # TAP P-006: correlation ID header name
+  correlation_header: "X-Infinity-Correlation-ID"
+
+  # Audit log destination
+  audit_log: "$GITHUB_STEP_SUMMARY"
+
 # Sync Settings
 sync:
   # Bidirectional local + Docker sync
