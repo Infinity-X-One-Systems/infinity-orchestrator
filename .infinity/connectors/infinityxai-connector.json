@@ -1,0 +1,88 @@
+{
+  "version": "1.0.0",
+  "id": "infinityxai-admin",
+  "name": "InfinityXAI Admin Panel",
+  "description": "Connector for the admin.infinityxai.com operator dashboard. Allows the admin panel to dispatch commands to the Infinity Orchestrator via GitHub repository_dispatch events and to poll system status via the GitHub Contents API.",
+  "governed": true,
+  "base_url": "https://admin.infinityxai.com",
+  "auth_method": "github_app",
+  "auth_fallback": "github_token",
+  "auth_secret": "GITHUB_APP_INSTALLATION_TOKEN",
+
+  "inbound": {
+    "description": "How admin.infinityxai.com sends commands TO the orchestrator.",
+    "mechanism": "GitHub repository_dispatch",
+    "endpoint": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/dispatches",
+    "method": "POST",
+    "auth": "github-app-token",
+    "event_type_prefix": "infinityxai_",
+    "example_payload": {
+      "event_type": "infinityxai_command",
+      "client_payload": {
+        "command": "run_workflow",
+        "workflow": "autonomous-invention.yml",
+        "source": "admin.infinityxai.com",
+        "actor": "admin-user",
+        "params": {}
+      }
+    },
+    "supported_commands": [
+      "run_workflow",
+      "health_check",
+      "memory_query",
+      "repo_index",
+      "create_issue",
+      "trigger_invention",
+      "trigger_genesis",
+      "trigger_healing"
+    ]
+  },
+
+  "outbound": {
+    "description": "How the orchestrator pushes status back to admin.infinityxai.com.",
+    "mechanism": "Cloudflare Worker webhook or GitHub Deployment Status API",
+    "webhook_url_secret": "INFINITYXAI_WEBHOOK_URL",
+    "auth_header": "Authorization",
+    "auth_secret": "INFINITYXAI_WEBHOOK_SECRET",
+    "payload_schema": "infinity-orchestrator-status-v1"
+  },
+
+  "read_endpoints": {
+    "active_memory": {
+      "description": "Fetch current ACTIVE_MEMORY.md snapshot",
+      "url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/contents/.infinity/ACTIVE_MEMORY.md",
+      "method": "GET",
+      "auth": "github-app-token",
+      "accept": "application/vnd.github.raw+json"
+    },
+    "org_repo_index": {
+      "description": "Fetch current org repository index",
+      "url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/contents/.infinity/ORG_REPO_INDEX.md",
+      "method": "GET",
+      "auth": "github-app-token",
+      "accept": "application/vnd.github.raw+json"
+    },
+    "workflow_runs": {
+      "description": "List recent workflow runs",
+      "url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator/actions/runs?per_page=10",
+      "method": "GET",
+      "auth": "github-app-token"
+    }
+  },
+
+  "health_check": {
+    "url": "https://api.github.com/repos/Infinity-X-One-Systems/infinity-orchestrator",
+    "method": "GET",
+    "expected_status": 200
+  },
+
+  "required_secrets": [
+    "GITHUB_APP_ID",
+    "GITHUB_APP_PRIVATE_KEY",
+    "INFINITYXAI_WEBHOOK_URL",
+    "INFINITYXAI_WEBHOOK_SECRET"
+  ],
+
+  "setup_guide": ".infinity/runbooks/admin-panels.md",
+  "tags": ["admin", "dashboard", "infinityxai", "operator", "dispatch"]
+}
