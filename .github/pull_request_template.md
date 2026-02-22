@@ -12,6 +12,7 @@
 - [ ] Documentation update
 - [ ] Configuration change
 - [ ] Workflow improvement
+- [ ] Invention pipeline (Idea → Spec → CodeGen → Validation → Packaging)
 
 ## Motivation and Context
 <!-- Why is this change required? What problem does it solve? -->
@@ -36,6 +37,14 @@
 - [ ] Any dependent changes have been merged and published
 - [ ] I have checked my code and corrected any misspellings
 - [ ] No secrets or sensitive data are included in this PR
+
+## TAP Governance (Automated PRs Only)
+<!-- Skip if this is a human-authored PR -->
+
+- [ ] P-001: No secrets in logs, commits, or PR body
+- [ ] P-003: Commit attributed to `github-actions[bot]`
+- [ ] P-004: No force-push to protected branch
+- [ ] P-006: Correlation ID logged before endpoint calls
 
 ## Screenshots (if applicable)
 <!-- Add screenshots to help explain your changes -->
