@@ -395,7 +395,7 @@ jobs:
             || echo "No changes to commit."
 
       - name: Push and Create PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(autonomous): discovery update [run ${{ github.run_id }}]"
