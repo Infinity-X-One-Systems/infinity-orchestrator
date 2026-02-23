@@ -101,7 +101,7 @@ jobs:
         run: pip install -r requirements.genesis.txt
 
       - name: Download Analysis Results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: workflow-analysis
         continue-on-error: true
@@ -144,7 +144,7 @@ jobs:
         run: pip install -r requirements.genesis.txt
 
       - name: Download Diagnostic Results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: diagnostic-results
         continue-on-error: true
@@ -189,7 +189,7 @@ jobs:
         run: pip install -r requirements.genesis.txt
 
       - name: Download Healing Results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: healing-results
         continue-on-error: true
@@ -247,7 +247,7 @@ jobs:
         run: pip install -r requirements.genesis.txt
 
       - name: Download Validation Results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: validation-results
         continue-on-error: true
