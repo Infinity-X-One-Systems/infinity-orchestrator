@@ -39,7 +39,7 @@ jobs:
           echo "::notice::Correlation ID: ${{ github.run_id }}-${{ github.run_attempt }}"
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 1
