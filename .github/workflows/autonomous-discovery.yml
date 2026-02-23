@@ -336,14 +336,14 @@ jobs:
           if [ -f requirements.genesis.txt ]; then pip install --quiet -r requirements.genesis.txt; fi
 
       - name: Download simulation artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: simulation-report-${{ github.run_id }}
           path: /tmp/artifacts/simulation/
         continue-on-error: true
 
       - name: Download TAP report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: tap-report-${{ github.run_id }}
           path: /tmp/artifacts/
