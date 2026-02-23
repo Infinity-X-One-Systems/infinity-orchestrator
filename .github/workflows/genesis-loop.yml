@@ -85,7 +85,7 @@ jobs:
         run: pip install -r requirements.genesis.txt
 
       - name: Download plan artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: genesis-plan
         continue-on-error: true
@@ -130,7 +130,7 @@ jobs:
         run: pip install -r requirements.genesis.txt
 
       - name: Download code artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: genesis-code
         continue-on-error: true
@@ -180,7 +180,7 @@ jobs:
         run: pip install -r requirements.genesis.txt
 
       - name: Download validation artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: genesis-validation
         continue-on-error: true
@@ -222,7 +222,7 @@ jobs:
         run: pip install -r requirements.genesis.txt
 
       - name: Download diagnostic artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: genesis-diagnostics
         continue-on-error: true
@@ -267,7 +267,7 @@ jobs:
         run: pip install -r requirements.genesis.txt
 
       - name: Download healing artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: genesis-healing
         continue-on-error: true
@@ -293,7 +293,7 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         continue-on-error: true
 
       - name: Generate Execution Summary

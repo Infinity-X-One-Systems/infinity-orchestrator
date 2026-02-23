@@ -112,7 +112,7 @@ jobs:
         run: pip install --quiet pyyaml
 
       - name: Download discovery index
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: discovery-index-${{ github.run_id }}
           path: /tmp/
@@ -159,7 +159,7 @@ jobs:
           python-version: '3.11'
 
       - name: Download scorecard
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: idea-scorecard-${{ github.run_id }}
           path: /tmp/
@@ -257,7 +257,7 @@ jobs:
           python-version: '3.11'
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: '*-${{ github.run_id }}'
           path: /tmp/artifacts/
